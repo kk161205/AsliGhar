@@ -1,0 +1,38 @@
+# internal documentation (confidential, never referenced from code or CI)
+docs/
+
+# environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+
+# SQLite
+*.db
+*.sqlite3
+
+# uploaded scan images (temporary, TTL-cleaned)
+backend/static/scans/*
+!backend/static/scans/.gitkeep
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# logs
+*.log

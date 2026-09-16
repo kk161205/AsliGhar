@@ -1,0 +1,43 @@
+:root {
+  --ink-900: #1c1a17;
+  --ink-600: #4a453e;
+  --paper-50: #faf7f2;
+  --paper-100: #f1ece3;
+  --line-200: #e2dacb;
+  --terracotta-600: #b5482f;
+  --terracotta-700: #953b26;
+  --moss-600: #4b6353;
+  --amber-600: #b8862e;
+  --rust-700: #8c3324;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.75rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper-50);
+  color: var(--ink-900);
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Fraunces", serif;
+  font-weight: 600;
+}
+
+code,
+.mono {
+  font-family: "IBM Plex Mono", monospace;
+}
