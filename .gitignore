@@ -19,10 +19,9 @@ node_modules/
 dist/
 build/
 .vite/
-
-# SQLite
-*.db
-*.sqlite3
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # uploaded scan images (temporary, TTL-cleaned)
 backend/static/scans/*

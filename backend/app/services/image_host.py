@@ -16,5 +16,7 @@ def save_upload(content: bytes, suffix: str = ".jpg") -> Path:
 def cleanup_expired(ttl_minutes: int) -> None:
     cutoff = time.time() - ttl_minutes * 60
     for file in STATIC_DIR.glob("*"):
+        if file.name == ".gitkeep":
+            continue
         if file.is_file() and file.stat().st_mtime < cutoff:
             file.unlink(missing_ok=True)
