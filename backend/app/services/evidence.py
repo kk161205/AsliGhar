@@ -414,7 +414,7 @@ def extract_price_deviation(
             max=max_score,
             status="unavailable",
             finding=(
-                f"Found {len(found)} listing(s) stating a rent for {home} in {city}; "
+                f"Found {len(found)} page(s) quoting a rent for {home} in {city}; "
                 f"at least {MIN_PRICE_SAMPLES} are needed to judge the price."
             ),
             sources=_sources(found),
@@ -427,17 +427,17 @@ def extract_price_deviation(
     if score > 0:
         finding = (
             f"Rent is {deviation_pct:.0f}% below the median (₹{median_rent:,.0f}) of "
-            f"{len(found)} listings that state a rent."
+            f"{len(found)} pages that quote a rent."
         )
     elif above_pct > NOTABLY_ABOVE_MEDIAN_PCT:
         finding = (
             f"Rent is {above_pct:.0f}% above the median (₹{median_rent:,.0f}) of "
-            f"{len(found)} listings that state a rent. Only rents below the median add to the risk score."
+            f"{len(found)} pages that quote a rent. Only rents below the median add to the risk score."
         )
     else:
         finding = (
             f"Rent is within a plausible range of the median (₹{median_rent:,.0f}) of "
-            f"{len(found)} listings that state a rent."
+            f"{len(found)} pages that quote a rent."
         )
     if bhk is None:
         finding += " No home size was given, so this compares across all sizes and counts for less."

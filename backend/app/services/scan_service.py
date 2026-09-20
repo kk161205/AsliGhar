@@ -180,7 +180,12 @@ async def run_scan(
     # silently wrote £ instead of ₹). Sending the actual character removes
     # that failure mode entirely.
     evidence_json = json.dumps(
-        {"signals": signals.model_dump(), "evidence": evidence_payload}, ensure_ascii=False
+        {
+            "submitted_listing": {"monthly_rent": rent, "city": city, "home_size": stated_bhk},
+            "signals": signals.model_dump(),
+            "evidence": evidence_payload,
+        },
+        ensure_ascii=False,
     )
     ai_summary = await groq_client.summarize_evidence(
         evidence_json=evidence_json,

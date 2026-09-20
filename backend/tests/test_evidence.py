@@ -319,7 +319,7 @@ def test_the_median_of_matching_listings_is_scored_and_the_listings_are_the_sour
     signal = _price(_rentals(18_000, 20_000, 22_000), rent=9_000)
 
     assert signal.score > 0
-    assert "median (₹20,000) of 3 listings" in signal.finding
+    assert "median (₹20,000) of 3 pages that quote a rent" in signal.finding
     assert [source.url for source in signal.sources] == [f"https://example.com/rent/{a}" for a in (18_000, 20_000, 22_000)]
     assert "₹18,000 a month" in signal.sources[0].detail
 
@@ -333,7 +333,7 @@ def test_listings_for_another_city_are_not_comparables() -> None:
 def test_listings_for_a_different_home_size_are_not_comparables() -> None:
     signal = _price(_rentals(20_000, 21_000, 22_000, bhk="1 BHK"), bhk="3BHK")
     assert signal.status == "unavailable"
-    assert "Found 0 listing(s) stating a rent for a 3BHK in Agra" in signal.finding
+    assert "Found 0 page(s) quoting a rent for a 3BHK in Agra" in signal.finding
 
 
 def test_a_snippet_that_does_not_state_the_home_size_is_not_a_comparable_when_it_is_known() -> None:
@@ -379,7 +379,7 @@ def test_fewer_than_three_comparables_is_unavailable_and_says_how_many_were_foun
 
     assert signal.status == "unavailable"
     assert signal.score == 0
-    assert "Found 2 listing(s)" in signal.finding
+    assert "Found 2 page(s)" in signal.finding
     assert len(signal.sources) == 2
 
 

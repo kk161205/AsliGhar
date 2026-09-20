@@ -290,3 +290,21 @@ async def test_a_failed_wider_search_keeps_what_the_locality_search_found(search
 
     assert result.signals.price_deviation.status == "unavailable"
     assert len(result.signals.price_deviation.sources) == 1
+
+
+async def test_the_summary_is_told_the_submitted_rent_and_city(searches, monkeypatch) -> None:
+    seen = {}
+
+    async def capture(**kwargs) -> str:
+        seen.update(kwargs)
+        return "summary"
+
+    monkeypatch.setattr(groq_client, "summarize_evidence", capture)
+    _reviewer(monkeypatch, None)
+
+    await _scan(bhk="2BHK")
+
+    import json
+
+    submitted = json.loads(seen["evidence_json"])["submitted_listing"]
+    assert submitted == {"monthly_rent": 29_000, "city": "Bengaluru", "home_size": "2BHK"}
