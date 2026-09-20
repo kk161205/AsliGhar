@@ -1,6 +1,6 @@
 import pytest
 
-from app.services import input_gate
+from app.services import input_gate, money
 
 
 @pytest.mark.parametrize("rent", [499, 0, -5, 5_000_001, 99_999_999])
@@ -32,11 +32,11 @@ def test_ordinary_rents_pass_including_ones_far_below_market(rent: int) -> None:
 
 
 def test_amounts_are_shown_with_indian_digit_grouping() -> None:
-    assert input_gate._inr(999) == "₹999"
-    assert input_gate._inr(15000) == "₹15,000"
-    assert input_gate._inr(500000) == "₹5,00,000"
-    assert input_gate._inr(5000000) == "₹50,00,000"
-    assert input_gate._inr(12345678) == "₹1,23,45,678"
+    assert money.inr(999) == "₹999"
+    assert money.inr(15000) == "₹15,000"
+    assert money.inr(500000) == "₹5,00,000"
+    assert money.inr(5000000) == "₹50,00,000"
+    assert money.inr(12345678) == "₹1,23,45,678"
 
 
 def test_the_typical_range_matches_the_price_extractors_own_bounds() -> None:

@@ -43,7 +43,7 @@ def test_the_same_photo_on_a_for_sale_listing_is_evidence_with_the_exact_link_an
 def test_a_sale_listing_shows_its_price_but_is_not_compared_with_the_rent() -> None:
     _, matches = _image_reuse(_lens(_match(OLX_SALE_TITLE, OLX_SALE_URL, price=3_199_000)))
 
-    assert matches[0].reasons == ["It is a listing for sale, but you submitted a rental. It shows ₹3,199,000."]
+    assert matches[0].reasons == ["It is a listing for sale, but you submitted a rental. It shows ₹31,99,000."]
 
 
 def test_the_same_photo_on_a_matching_rental_is_not_evidence() -> None:
@@ -259,7 +259,7 @@ def test_a_resolved_place_is_listed_as_a_source_with_a_maps_link() -> None:
     }
     signal = _address(maps_result)
 
-    assert signal.score == scoring.ADDRESS_NO_CATEGORY_DATA_SCORE
+    assert signal.score == scoring.ADDRESS_VALID_SCORE
     assert signal.sources[0].url == "https://www.google.com/maps/place/?q=place_id:ChIJsS8SMagWrjsRdnQ2pFrdsMk"
     assert "Indiranagar, Bengaluru" in signal.sources[0].detail
 
@@ -268,8 +268,8 @@ def test_an_address_found_only_after_adding_the_city_says_so() -> None:
     maps_result = {"place_results": {"title": "Gwalior Rd", "address": "Uttar Pradesh, India"}}
     signal = _address(maps_result, city="Agra", city_added=True)
 
-    assert signal.score == scoring.ADDRESS_NO_CATEGORY_DATA_SCORE
-    assert "Only found once the city was added" in signal.finding
+    assert signal.score == scoring.ADDRESS_VALID_SCORE
+    assert "Found by adding your city to the search" in signal.finding
 
 
 def test_an_address_that_resolves_in_another_city_is_a_contradiction() -> None:
@@ -282,7 +282,7 @@ def test_an_address_that_resolves_in_another_city_is_a_contradiction() -> None:
 
 def test_a_street_named_after_a_city_is_not_a_wrong_city() -> None:
     maps_result = {"place_results": {"title": "Mysore Rd", "address": "Mysore Road, Bengaluru, Karnataka, India"}}
-    assert _address(maps_result, city="Bengaluru").score == scoring.ADDRESS_NO_CATEGORY_DATA_SCORE
+    assert _address(maps_result, city="Bengaluru").score == scoring.ADDRESS_VALID_SCORE
 
 
 def test_mismatched_category_is_ambiguous() -> None:
@@ -408,3 +408,57 @@ def test_a_rent_far_above_the_median_is_not_called_plausible() -> None:
     assert signal.score == 0
     assert "above the median" in signal.finding
     assert "plausible" not in signal.finding
+
+
+# --- reading a flagged page's price from Google's entry for it ------------------------
+
+# Real result for the OLX listing's URL: the snippet carries size and price.
+OLX_PAGE_RESULTS = [
+    {
+        "link": "https://www.olx.in/item/for-sale-houses-apartments-c1725-3-bhk-house-villa-800-sq-ft-in-agra-cantonment-agra-iid-1855312754",
+        "title": "3BHK semi furnished semi duplex house for sale in rohta ...",
+        "snippet": "3BHK semi furnished semi duplex house for sale in rohta Gwalior Road. 3 BHK - 3 Bathroom - 800 sqft. ₹ 31,99,000. postedOn10 Sep, 2026.",
+    }
+]
+
+
+def test_a_flagged_pages_price_and_text_are_read_from_googles_entry_for_it() -> None:
+    details = evidence.page_details(OLX_PAGE_RESULTS, OLX_SALE_URL)
+
+    assert details.price == 3_199_000
+    assert "3 BHK - 3 Bathroom - 800 sqft" in details.snippet
+
+
+def test_a_listing_is_recognised_across_the_url_variants_a_site_serves_it_under() -> None:
+    hindi_variant = "https://www.olx.in/hi-in/item/for-sale-houses-apartments-c1725-3-bhk-house-villa-800-sq-ft-in-agra-cantonment-agra-iid-1855312754"
+    assert evidence.page_details(OLX_PAGE_RESULTS, hindi_variant).price == 3_199_000
+
+
+def test_a_page_google_does_not_return_has_no_details() -> None:
+    assert evidence.page_details(OLX_PAGE_RESULTS, "https://www.olx.in/item/some-other-iid-1") is None
+    assert evidence.page_details([], OLX_SALE_URL) is None
+
+
+def test_two_different_prices_in_one_snippet_are_not_read_as_the_price() -> None:
+    results = [{**OLX_PAGE_RESULTS[0], "snippet": "House ₹ 31,99,000. Was ₹ 35,00,000."}]
+    assert evidence.page_details(results, OLX_SALE_URL).price is None
+
+
+def test_the_pages_own_sale_price_goes_into_the_reason_and_the_evidence() -> None:
+    details = evidence.page_details(OLX_PAGE_RESULTS, OLX_SALE_URL)
+    _, matches = evidence.extract_image_reuse(
+        _lens(_match(OLX_SALE_TITLE, OLX_SALE_URL)), 150_000, "Agra", {OLX_SALE_URL: details}
+    )
+
+    assert matches[0].listed_price == 3_199_000
+    assert matches[0].reasons == ["It is a listing for sale, but you submitted a rental. It shows ₹31,99,000."]
+    assert "₹ 31,99,000" in matches[0].source_snippet
+
+
+def test_an_address_with_no_category_is_not_penalised() -> None:
+    maps_result = {"place_results": {"title": "Gwalior Rd", "address": "Uttar Pradesh, India"}}
+    signal = _address(maps_result, city="Agra", city_added=True)
+
+    assert signal.score == 0
+    assert signal.status == "ok"
+    assert "confirms the place exists" in signal.finding

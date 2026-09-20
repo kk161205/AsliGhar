@@ -18,6 +18,8 @@ class _Recorder:
         self.price: list[str] = []
         self.lens: list[str] = []
         self.price_results = None
+        self.lens_result: dict = {"exact_matches": []}
+        self.page_lookups: list[str] = []
 
 
 @pytest.fixture
@@ -26,7 +28,7 @@ def searches(monkeypatch, tmp_path) -> _Recorder:
 
     async def lens(url: str) -> dict:
         recorder.lens.append(url)
-        return {"exact_matches": []}
+        return recorder.lens_result
 
     async def maps(address: str) -> dict:
         recorder.maps.append(address)
@@ -51,6 +53,11 @@ def searches(monkeypatch, tmp_path) -> _Recorder:
 
     monkeypatch.setattr(image_host, "STATIC_DIR", tmp_path)
     monkeypatch.setattr(image_host, "was_fetched", lambda _name: True)
+    async def search_page(url: str) -> dict:
+        recorder.page_lookups.append(url)
+        return {"organic_results": [{"link": url, "title": "House", "snippet": "House for sale. ₹ 31,99,000."}]}
+
+    monkeypatch.setattr(serpapi_client, "search_page", search_page)
     monkeypatch.setattr(serpapi_client, "reverse_image_search", lens)
     monkeypatch.setattr(serpapi_client, "resolve_address", maps)
     monkeypatch.setattr(serpapi_client, "organic_price_search", price)
@@ -180,7 +187,7 @@ async def test_an_address_that_only_resolves_with_the_city_added_says_so(searche
     result = await _scan()
 
     assert searches.maps == [ADDRESS, f"{ADDRESS}, Bengaluru"]
-    assert "Only found once the city was added" in result.signals.address_validity.finding
+    assert "Found by adding your city to the search" in result.signals.address_validity.finding
     assert result.signals.address_validity.sources[0].url.endswith("place_id:abc")
 
 
@@ -308,3 +315,55 @@ async def test_the_summary_is_told_the_submitted_rent_and_city(searches, monkeyp
 
     submitted = json.loads(seen["evidence_json"])["submitted_listing"]
     assert submitted == {"monthly_rent": 29_000, "city": "Bengaluru", "home_size": "2BHK"}
+
+
+OLX_SALE = {
+    "title": "3BHK house for sale in Bengaluru",
+    "link": "https://www.olx.in/item/for-sale-houses-apartments-3-bhk-iid-100",
+    "source": "OLX",
+}
+
+
+async def test_a_flagged_page_is_looked_up_and_its_sale_price_shown(searches, monkeypatch) -> None:
+    searches.lens_result = {"exact_matches": [OLX_SALE]}
+    _reviewer(monkeypatch, None)
+
+    result = await _scan()
+
+    assert searches.page_lookups == [OLX_SALE["link"]]
+    assert result.evidence[0].listed_price == 3_199_000
+    assert "₹31,99,000" in result.evidence[0].reasons[0]
+    assert result.evidence[0].source_snippet.endswith("₹ 31,99,000.")
+
+
+async def test_no_page_is_looked_up_when_nothing_is_flagged(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    await _scan()
+    assert searches.page_lookups == []
+
+
+async def test_page_lookups_are_capped(searches, monkeypatch) -> None:
+    searches.lens_result = {
+        "exact_matches": [{**OLX_SALE, "title": f"House {n} for sale", "link": f"https://www.olx.in/item/for-sale-x-iid-{n}"} for n in range(6)]
+    }
+    _reviewer(monkeypatch, None)
+
+    result = await _scan()
+
+    assert len(searches.page_lookups) == scan_service.MAX_PAGE_LOOKUPS
+    assert len(result.evidence) == 6
+
+
+async def test_a_failed_page_lookup_keeps_the_evidence_without_its_price(searches, monkeypatch) -> None:
+    async def down(_url: str) -> dict:
+        raise TimeoutError("search down")
+
+    monkeypatch.setattr(serpapi_client, "search_page", down)
+    searches.lens_result = {"exact_matches": [OLX_SALE]}
+    _reviewer(monkeypatch, None)
+
+    result = await _scan()
+
+    assert len(result.evidence) == 1
+    assert result.evidence[0].listed_price is None
+    assert result.evidence[0].reasons == ["It is a listing for sale, but you submitted a rental."]

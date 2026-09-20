@@ -107,3 +107,12 @@ async def organic_price_search(query: str, city: str) -> dict:
         {"q": query, "location": f"{city}, India"},
         cache_ttl_seconds=get_settings().price_cache_ttl_seconds,
     )
+
+
+async def search_page(url: str) -> dict:
+    """Google's own entry for a page, found by searching its URL.
+
+    Direct requests to listing sites are blocked, but the search result for a
+    listing carries its title, size and price (confirmed live for OLX).
+    """
+    return await _get("google", {"q": url}, cache_ttl_seconds=get_settings().price_cache_ttl_seconds)

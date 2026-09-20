@@ -31,6 +31,8 @@ from app.services import (
 logger = logging.getLogger(__name__)
 
 SCAN_ID_LENGTH = 10
+# Bounds the extra searches spent reading flagged pages' prices.
+MAX_PAGE_LOOKUPS = 3
 RECENT_SCANS_LIMIT = 20
 
 
@@ -56,6 +58,25 @@ async def _review(
     if not get_settings().supervisor_enabled:
         return None
     return await input_review.review_input(address, city, description)
+
+
+async def _look_up_pages(flagged: list[ImageMatchEvidence]) -> dict[str, evidence.PageDetails]:
+    """What Google shows (title, size, price) for the pages a photo was flagged on.
+
+    Listing sites can't be fetched directly, so each page is found by searching
+    its URL. Failures just mean that page's price stays unknown.
+    """
+    links = list(dict.fromkeys(item.source_url for item in flagged))[:MAX_PAGE_LOOKUPS]
+    results = await asyncio.gather(*(serpapi_client.search_page(link) for link in links), return_exceptions=True)
+    pages: dict[str, evidence.PageDetails] = {}
+    for link, result in zip(links, results):
+        if isinstance(result, Exception):
+            logger.warning("Couldn't look up flagged page %s: %s", link, result)
+            continue
+        details = evidence.page_details(result.get("organic_results", []), link)
+        if details is not None:
+            pages[link] = details
+    return pages
 
 
 async def _resolve_address(
@@ -161,6 +182,9 @@ async def run_scan(
     )
 
     image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city)
+    if image_evidence:
+        pages = await _look_up_pages(image_evidence)
+        image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city, pages)
     address_signal = evidence.extract_address_validity(maps_result, city, city_added=city_added)
     price_signal = evidence.extract_price_deviation(price_result, rent, city=city, bhk=stated_bhk)
 

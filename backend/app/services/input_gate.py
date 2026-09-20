@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.services.evidence import MAX_MONTHLY_RENT, MIN_MONTHLY_RENT
+from app.services.money import inr
 
 # Outside these no real monthly rent exists — refuse outright, no override.
 HARD_MIN_RENT = 500
@@ -34,20 +35,6 @@ class GateResult(BaseModel):
     issues: list[GateIssue] = []
 
 
-def _inr(amount: int) -> str:
-    # Indian digit grouping: 12,34,567 (last three digits, then pairs).
-    digits = str(amount)
-    if len(digits) <= 3:
-        return f"₹{digits}"
-    head, tail = digits[:-3], digits[-3:]
-    pairs = []
-    while len(head) > 2:
-        pairs.insert(0, head[-2:])
-        head = head[:-2]
-    pairs.insert(0, head)
-    return "₹" + ",".join([*pairs, tail])
-
-
 def evaluate(rent: int) -> GateResult:
     if rent < HARD_MIN_RENT or rent > HARD_MAX_RENT:
         return GateResult(
@@ -57,8 +44,8 @@ def evaluate(rent: int) -> GateResult:
                     code="rent_impossible",
                     field="rent",
                     message=(
-                        f"{_inr(rent)} a month isn't a possible rent. "
-                        f"Enter the monthly rent between {_inr(HARD_MIN_RENT)} and {_inr(HARD_MAX_RENT)}."
+                        f"{inr(rent)} a month isn't a possible rent. "
+                        f"Enter the monthly rent between {inr(HARD_MIN_RENT)} and {inr(HARD_MAX_RENT)}."
                     ),
                 )
             ],
@@ -70,7 +57,7 @@ def evaluate(rent: int) -> GateResult:
                 GateIssue(
                     code="rent_unusually_low",
                     field="rent",
-                    message=f"{_inr(rent)} a month is unusually low for a rental.",
+                    message=f"{inr(rent)} a month is unusually low for a rental.",
                 )
             ],
         )
@@ -81,7 +68,7 @@ def evaluate(rent: int) -> GateResult:
                 GateIssue(
                     code="rent_unusually_high",
                     field="rent",
-                    message=f"{_inr(rent)} a month is unusually high for a rental.",
+                    message=f"{inr(rent)} a month is unusually high for a rental.",
                 )
             ],
         )

@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from app.models.schemas import ImageMatchEvidence, SignalResult, SignalSource
 from app.services import bhk as bhk_reader
 from app.services import cities, scoring
+from app.services.money import inr
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,44 @@ MAX_SNIPPET_CHARS = 160
 
 ListingType = Literal["sale", "rent"]
 
+# A listing page's own price, as Google's result for it quotes it ("₹ 31,99,000").
+# Not range-checked: a sale price is far above any monthly rent.
+LISTING_PRICE_PATTERN = re.compile(r"(?:₹|rs\.?)\s?([\d,]{4,})", re.IGNORECASE)
+MAX_PAGE_SNIPPET_CHARS = 200
+
+
+class PageDetails(NamedTuple):
+    price: int | None
+    snippet: str | None
+
+
+def _page_key(link: str) -> str:
+    """Identifies a listing across the URL variants a site serves it under."""
+    parsed = urlparse(link)
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    listing_id = re.search(r"iid-\d+", parsed.path)
+    if listing_id:
+        return f"{host}/{listing_id.group(0)}"
+    return host + re.sub(r"^/[a-z]{2}-[a-z]{2}/", "/", parsed.path)
+
+
+def page_details(organic_results: list[dict], link: str) -> PageDetails | None:
+    """What Google shows for this exact page, found among search results for its URL."""
+    key = _page_key(link)
+    for item in organic_results:
+        if _page_key(item.get("link", "")) != key:
+            continue
+        snippet = (item.get("snippet") or "").strip()
+        figures = {
+            int(digits.replace(",", ""))
+            for digits in LISTING_PRICE_PATTERN.findall(f"{item.get('title', '')} {snippet}")
+        }
+        return PageDetails(
+            price=next(iter(figures)) if len(figures) == 1 else None,
+            snippet=snippet[:MAX_PAGE_SNIPPET_CHARS] or None,
+        )
+    return None
+
 
 def _listing_site(link: str) -> str | None:
     """The site a link is a single listing page of, or None.
@@ -123,22 +162,22 @@ def _other_city(text: str, submitted_city: str) -> str | None:
 
 
 def _contradictions(
-    match: dict, submitted_price: int, submitted_city: str
+    match: dict, submitted_price: int, submitted_city: str, page: PageDetails | None
 ) -> tuple[list[str], int | None, str | None, ListingType | None]:
     """What the page itself says that conflicts with the submitted listing."""
     title, link = match.get("title", ""), match.get("link", "")
-    listed_price = (match.get("price") or {}).get("extracted_value")
+    listed_price = (match.get("price") or {}).get("extracted_value") or (page.price if page else None)
     kind = listing_type(title, link)
     reasons: list[str] = []
     if kind == "sale":
-        shown = f" It shows ₹{listed_price:,}." if listed_price else ""
+        shown = f" It shows {inr(listed_price)}." if listed_price else ""
         reasons.append(f"It is a listing for sale, but you submitted a rental.{shown}")
     elif (
         listed_price is not None
         and submitted_price > 0
         and abs(listed_price - submitted_price) / submitted_price * 100 > PRICE_MISMATCH_TOLERANCE_PCT
     ):
-        reasons.append(f"It shows ₹{listed_price:,} a month, but you submitted ₹{submitted_price:,}.")
+        reasons.append(f"It shows {inr(listed_price)} a month, but you submitted {inr(submitted_price)}.")
     other_city = _other_city(_page_text(title, link), submitted_city)
     if other_city:
         reasons.append(f"Its title or address places it in {other_city}, but you submitted {submitted_city}.")
@@ -146,8 +185,13 @@ def _contradictions(
 
 
 def extract_image_reuse(
-    lens_results: list, submitted_price: int, submitted_city: str
+    lens_results: list,
+    submitted_price: int,
+    submitted_city: str,
+    pages: dict[str, PageDetails] | None = None,
 ) -> tuple[SignalResult, list[ImageMatchEvidence]]:
+    """`pages`: what Google shows for each flagged page (by link), to read its price from."""
+    pages = pages or {}
     failed_photos = sum(isinstance(result, Exception) for result in lens_results)
     if lens_results and failed_photos == len(lens_results):
         logger.warning("google_lens failed for all %s photos", failed_photos)
@@ -181,7 +225,8 @@ def extract_image_reuse(
                 continue
             seen_listings.add(listing_key)
             listing_pages += 1
-            reasons, listed_price, listed_city, kind = _contradictions(match, submitted_price, submitted_city)
+            page = pages.get(link)
+            reasons, listed_price, listed_city, kind = _contradictions(match, submitted_price, submitted_city, page)
             if not reasons:
                 consistent += 1
                 continue
@@ -197,6 +242,7 @@ def extract_image_reuse(
                     submitted_city=submitted_city,
                     reasons=reasons,
                     listing_type=kind,
+                    source_snippet=page.snippet if page else None,
                 )
             )
         logger.info(
@@ -283,29 +329,29 @@ def extract_address_validity(maps_result, submitted_city: str, *, city_added: bo
         url=_maps_link(place),
         detail=f"Google Maps: {full_address}" if full_address else "Google Maps result",
     )
-    only_with_city = " Only found once the city was added to the search." if city_added else ""
+    found_with_city = " Found by adding your city to the search." if city_added else ""
 
     other_city = _other_city(full_address, submitted_city)
     if other_city:
         return SignalResult(
             score=scoring.ADDRESS_WRONG_CITY_SCORE,
             max=scoring.ADDRESS_VALIDITY_MAX,
-            finding=f'Address resolves to "{title}" in {other_city}, not {submitted_city}.{only_with_city}',
+            finding=f'Address resolves to "{title}" in {other_city}, not {submitted_city}.{found_with_city}',
             sources=[source],
         )
 
     category = place.get("type") or next(iter(place.get("types") or []), None)
     if category is None:
-        # Common case for locality-level queries (confirmed live): place_results
-        # resolves with title/address/gps_coordinates but no category at all.
-        # That's a neutral "can't classify," not a red flag, so it scores above
-        # a clean match but well below an actual category mismatch.
+        # Common for locality-level queries (confirmed live): Maps resolves the
+        # place with title/address/gps but no category. Absence of a category is
+        # not evidence against the address, so it isn't scored as one.
+        located = f" ({full_address})" if full_address else ""
         return SignalResult(
-            score=scoring.ADDRESS_NO_CATEGORY_DATA_SCORE,
+            score=scoring.ADDRESS_VALID_SCORE,
             max=scoring.ADDRESS_VALIDITY_MAX,
             finding=(
-                f'Address resolves to "{title}", but no category data was available to verify it further.'
-                f"{only_with_city}"
+                f'Google Maps found "{title}"{located}. That confirms the place exists, '
+                f"not what kind of building it is.{found_with_city}"
             ),
             sources=[source],
         )
@@ -314,14 +360,14 @@ def extract_address_validity(maps_result, submitted_city: str, *, city_added: bo
         return SignalResult(
             score=scoring.ADDRESS_VALID_SCORE,
             max=scoring.ADDRESS_VALIDITY_MAX,
-            finding=f"Address resolves to a plausible residential category ({category}).{only_with_city}",
+            finding=f"Address resolves to a plausible residential category ({category}).{found_with_city}",
             sources=[source],
         )
 
     return SignalResult(
         score=scoring.ADDRESS_AMBIGUOUS_SCORE,
         max=scoring.ADDRESS_VALIDITY_MAX,
-        finding=f'Address resolves, but to a "{category}", not a residential building.{only_with_city}',
+        finding=f'Address resolves, but to a "{category}", not a residential building.{found_with_city}',
         sources=[source],
     )
 
@@ -387,7 +433,7 @@ def _sources(comparables: list[Comparable]) -> list[SignalSource]:
         SignalSource(
             title=item.title,
             url=item.link or None,
-            detail=f"₹{item.rent:,} a month — “{(item.snippet or item.title)[:MAX_SNIPPET_CHARS]}”",
+            detail=f"{inr(item.rent)} a month — “{(item.snippet or item.title)[:MAX_SNIPPET_CHARS]}”",
         )
         for item in comparables
     ]
@@ -426,17 +472,17 @@ def extract_price_deviation(
     above_pct = (submitted_rent - median_rent) / median_rent * 100
     if score > 0:
         finding = (
-            f"Rent is {deviation_pct:.0f}% below the median (₹{median_rent:,.0f}) of "
+            f"Rent is {deviation_pct:.0f}% below the median ({inr(round(median_rent))}) of "
             f"{len(found)} pages that quote a rent."
         )
     elif above_pct > NOTABLY_ABOVE_MEDIAN_PCT:
         finding = (
-            f"Rent is {above_pct:.0f}% above the median (₹{median_rent:,.0f}) of "
+            f"Rent is {above_pct:.0f}% above the median ({inr(round(median_rent))}) of "
             f"{len(found)} pages that quote a rent. Only rents below the median add to the risk score."
         )
     else:
         finding = (
-            f"Rent is within a plausible range of the median (₹{median_rent:,.0f}) of "
+            f"Rent is within a plausible range of the median ({inr(round(median_rent))}) of "
             f"{len(found)} pages that quote a rent."
         )
     if bhk is None:

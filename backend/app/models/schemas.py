@@ -47,6 +47,9 @@ class ImageMatchEvidence(BaseModel):
     # each reason is read straight from the page's own title, URL or price.
     reasons: list[str] = []
     listing_type: Optional[Literal["sale", "rent"]] = None
+    # The page's own description as Google shows it (title, size, price), so the
+    # listing can be judged without opening it.
+    source_snippet: Optional[str] = None
 
 
 class UnderstoodInput(BaseModel):
