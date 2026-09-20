@@ -26,6 +26,32 @@ export interface ImageMatchEvidence {
   submitted_city: string;
 }
 
+export interface UnderstoodInput {
+  address_city: string | null;
+  locality: string | null;
+  landmark: string | null;
+  pincode: string | null;
+  bhk: string | null;
+}
+
+export interface SearchTrace {
+  // false when the address couldn't be read and plain city-level searches ran.
+  reviewer_used: boolean;
+  understood: UnderstoodInput;
+  queries: { check: "address" | "price"; query: string }[];
+}
+
+export interface GateIssue {
+  code: "rent_impossible" | "rent_unusually_low" | "rent_unusually_high";
+  field: "rent";
+  message: string;
+}
+
+export interface GateResult {
+  status: "ok" | "needs_confirmation" | "rejected";
+  issues: GateIssue[];
+}
+
 export interface ScanResponse {
   scan_id: string;
   risk_score: number;
@@ -35,6 +61,8 @@ export interface ScanResponse {
   ai_summary: string | null;
   created_at: string;
   partial: boolean;
+  override_reason: string | null;
+  search_trace: SearchTrace | null;
 }
 
 export interface ScanSummary {

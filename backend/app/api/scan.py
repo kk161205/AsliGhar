@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from app.core.auth_deps import get_current_user
 from app.core.rate_limit import limiter
 from app.models.db import User
-from app.models.schemas import ScanResponse, ScanSummary
-from app.services import scan_service
+from app.models.schemas import PrecheckRequest, ScanResponse, ScanSummary
+from app.services import input_gate, scan_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,42 @@ async def _read_and_validate_photos(photos: list[UploadFile]) -> list[tuple[byte
     return contents
 
 
+@router.post(
+    "/scan/precheck",
+    response_model=input_gate.GateResult,
+    dependencies=[Depends(get_current_user)],
+)
+async def precheck_scan(body: PrecheckRequest) -> input_gate.GateResult:
+    """Free, instant check of the inputs, so a typo is caught before a scan is paid for."""
+    return input_gate.evaluate(body.rent)
+
+
+def _override_reason_for(rent: int, override_reason: str | None) -> str | None:
+    """Apply the input gate: refuse, demand a reason, or let the scan through.
+
+    The reason is only recorded when the gate actually asked for one, and it
+    never reaches scoring.
+    """
+    gate = input_gate.evaluate(rent)
+    if gate.status == "rejected":
+        logger.warning("Scan rejected: rent=%s is not a possible monthly rent", rent)
+        raise HTTPException(status_code=422, detail=gate.issues[0].message)
+    if gate.status == "ok":
+        return None
+    reason = (override_reason or "").strip()
+    if len(reason) < input_gate.MIN_OVERRIDE_REASON_CHARS:
+        logger.warning("Scan rejected: unusual rent=%s submitted without a stated reason", rent)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{gate.issues[0].message} To scan it anyway, say why "
+                f"(at least {input_gate.MIN_OVERRIDE_REASON_CHARS} characters)."
+            ),
+        )
+    logger.info("Unusual rent=%s accepted with a stated reason", rent)
+    return reason
+
+
 @router.post("/scan", response_model=ScanResponse)
 @limiter.limit("10/hour")
 async def create_scan(
@@ -51,8 +87,11 @@ async def create_scan(
     rent: int = Form(...),
     bhk: str | None = Form(None),
     description: str | None = Form(None),
+    override_reason: str | None = Form(None, max_length=input_gate.MAX_OVERRIDE_REASON_CHARS),
     current_user: User = Depends(get_current_user),
 ) -> ScanResponse:
+    # Before any photo is read or search paid for.
+    reason = _override_reason_for(rent, override_reason)
     validated_photos = await _read_and_validate_photos(photos)
     return await scan_service.run_scan(
         photos=validated_photos,
@@ -62,6 +101,7 @@ async def create_scan(
         bhk=bhk,
         description=description,
         user_id=current_user.id,
+        override_reason=reason,
     )
 
 

@@ -572,6 +572,20 @@ button {
   margin: 0;
 }
 
+.upload-form__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--amber-600);
+}
+
+.upload-form__confirm-message {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-900);
+}
+
 .button-primary {
   display: inline-block;
   background: var(--terracotta-600);
@@ -792,6 +806,71 @@ button {
   border-left: 2px solid var(--amber-600);
   color: var(--ink-600);
   font-size: var(--text-sm);
+}
+
+.results__override {
+  max-width: 640px;
+  margin: 0 0 var(--space-6);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--line-200);
+  color: var(--ink-600);
+  font-size: var(--text-sm);
+}
+
+.how-we-searched {
+  max-width: 640px;
+  margin-top: var(--space-8);
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+}
+
+.how-we-searched summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+.how-we-searched__lead {
+  margin: var(--space-3) 0;
+}
+
+.how-we-searched__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: 0 0 var(--space-3);
+}
+
+.how-we-searched__facts dt {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.how-we-searched__facts dd {
+  margin: 0;
+  color: var(--ink-900);
+}
+
+.how-we-searched__queries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.how-we-searched__queries li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.how-we-searched__queries code {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--ink-900);
+  overflow-wrap: anywhere;
 }
 
 .signal-row__finding {

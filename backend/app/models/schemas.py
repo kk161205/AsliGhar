@@ -36,6 +36,33 @@ class ImageMatchEvidence(BaseModel):
     submitted_city: str
 
 
+class UnderstoodInput(BaseModel):
+    """What the input reviewer (and the BHK pattern) read out of the submission."""
+
+    address_city: Optional[str] = None
+    locality: Optional[str] = None
+    landmark: Optional[str] = None
+    pincode: Optional[str] = None
+    bhk: Optional[str] = None
+
+
+class TraceQuery(BaseModel):
+    check: Literal["address", "price"]
+    query: str
+
+
+class SearchTrace(BaseModel):
+    """How a scan searched, kept so a result can be explained afterwards."""
+
+    reviewer_used: bool
+    understood: UnderstoodInput
+    queries: list[TraceQuery]
+
+
+class PrecheckRequest(BaseModel):
+    rent: int
+
+
 class ScanResponse(BaseModel):
     scan_id: str
     risk_score: int = Field(ge=0, le=100)
@@ -44,6 +71,10 @@ class ScanResponse(BaseModel):
     evidence: list[ImageMatchEvidence]
     ai_summary: Optional[str] = None
     created_at: datetime
+    # The user's stated reason for an unusual rent. Shown alongside the result,
+    # never an input to the score or the summary.
+    override_reason: Optional[str] = None
+    search_trace: Optional[SearchTrace] = None
 
     @computed_field  # derived, so it's right for stored scans too, not just new ones
     @property

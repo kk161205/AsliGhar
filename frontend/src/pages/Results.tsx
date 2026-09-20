@@ -4,6 +4,7 @@ import { ApiError, getScan } from "../api/client";
 import type { ScanResponse } from "../api/types";
 import AiSummary from "../components/AiSummary";
 import EvidenceTrail from "../components/EvidenceTrail";
+import HowWeSearched from "../components/HowWeSearched";
 import Nav from "../components/Nav";
 import RiskGauge from "../components/RiskGauge";
 import SignalRow from "../components/SignalRow";
@@ -56,6 +57,13 @@ export default function Results() {
               </p>
             )}
 
+            {state.scan.override_reason && (
+              <p role="note" className="results__override">
+                The rent was flagged as unusual. Reason given: “{state.scan.override_reason}”. This is
+                shown for context and doesn't change the score.
+              </p>
+            )}
+
             <section className="results__signals">
               <SignalRow label="Image reuse" signal={state.scan.signals.image_reuse} />
               <SignalRow label="Address plausibility" signal={state.scan.signals.address_validity} />
@@ -68,6 +76,8 @@ export default function Results() {
             </section>
 
             <AiSummary summary={state.scan.ai_summary} />
+
+            {state.scan.search_trace && <HowWeSearched trace={state.scan.search_trace} />}
           </>
         )}
       </main>

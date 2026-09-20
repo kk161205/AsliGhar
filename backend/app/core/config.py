@@ -17,7 +17,18 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     image_ttl_minutes: int = 15
     scan_cache_ttl_seconds: int = 600
+    # Rents for a locality don't move within a day, and re-asking gives a
+    # noticeably different median each time — a long TTL keeps repeat scans of
+    # the same place consistent (in-memory, so it resets on restart).
+    price_cache_ttl_seconds: int = 60 * 60 * 24
     serpapi_lens_timeout_seconds: float = 12.0
+    # Input reviewer: an LLM that turns messy address text into structured
+    # fields for building search queries. Deliberately not the summarizer's
+    # model, so their mistakes are less likely to coincide. If it's off, slow
+    # or wrong the scan falls back to the plain city-level queries.
+    supervisor_enabled: bool = True
+    supervisor_model: str = "qwen/qwen3.8-27b"
+    supervisor_timeout_seconds: float = 4.0
     # Neon (serverless Postgres). No default on purpose — a connection string
     # carries credentials, so it comes from .env only, same as the API keys
     # above. Expected form: postgresql+asyncpg://<user>:<password>@<host>/<db>?ssl=require

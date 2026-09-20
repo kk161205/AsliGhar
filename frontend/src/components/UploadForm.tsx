@@ -9,10 +9,21 @@ const MIN_PHOTOS = 1;
 const MAX_PHOTOS = 5;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png"]);
+const MIN_REASON_CHARS = 10;
+const MAX_REASON_CHARS = 300;
+
+// The server asked about this rent; tied to the amount so editing the rent
+// afterwards drops the question instead of carrying it to a different figure.
+export interface RentConfirmation {
+  rent: number;
+  message: string;
+}
 
 interface UploadFormProps {
   onSubmit: (input: CreateScanInput) => void;
   defaultCity?: string;
+  busy?: boolean;
+  confirmation?: RentConfirmation | null;
 }
 
 function validatePhotos(photos: File[]): string | null {
@@ -30,13 +41,19 @@ function validatePhotos(photos: File[]): string | null {
   return null;
 }
 
-export default function UploadForm({ onSubmit, defaultCity }: UploadFormProps) {
+export default function UploadForm({
+  onSubmit,
+  defaultCity,
+  busy = false,
+  confirmation = null,
+}: UploadFormProps) {
   const [photos, setPhotos] = useState<File[]>([]);
   const [address, setAddress] = useState("");
   const [city, setCity] = useState(defaultCity ?? "");
   const [rent, setRent] = useState("");
   const [bhk, setBhk] = useState("");
   const [description, setDescription] = useState("");
+  const [reason, setReason] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +78,8 @@ export default function UploadForm({ onSubmit, defaultCity }: UploadFormProps) {
     event.target.value = "";
   }
 
+  const needsReason = confirmation !== null && confirmation.rent === Math.round(Number(rent));
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
 
@@ -79,6 +98,11 @@ export default function UploadForm({ onSubmit, defaultCity }: UploadFormProps) {
       return;
     }
 
+    if (needsReason && reason.trim().length < MIN_REASON_CHARS) {
+      setError(`Say why this rent is right (at least ${MIN_REASON_CHARS} characters).`);
+      return;
+    }
+
     setError(null);
     onSubmit({
       photos,
@@ -87,6 +111,7 @@ export default function UploadForm({ onSubmit, defaultCity }: UploadFormProps) {
       rent: Math.round(rentValue),
       bhk: bhk.trim() || undefined,
       description: description.trim() || undefined,
+      overrideReason: needsReason ? reason.trim() : undefined,
     });
   }
 
@@ -225,14 +250,36 @@ export default function UploadForm({ onSubmit, defaultCity }: UploadFormProps) {
         />
       </label>
 
+      {needsReason && (
+        <div className="upload-form__confirm" role="group" aria-label="Confirm this rent">
+          <p className="upload-form__confirm-message">{confirmation.message}</p>
+          <label className="upload-form__field">
+            <span className="upload-form__label-row">
+              <span className="upload-form__label-text">Why is this rent right?</span>
+            </span>
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              rows={2}
+              maxLength={MAX_REASON_CHARS}
+              placeholder="e.g. a single room in a family home"
+              autoFocus
+            />
+          </label>
+          <p className="upload-form__hint">
+            Shown next to the result. It doesn't change the score.
+          </p>
+        </div>
+      )}
+
       {error && (
         <p className="upload-form__error" role="alert">
           {error}
         </p>
       )}
 
-      <button type="submit" className="button-primary upload-form__submit">
-        Check this listing
+      <button type="submit" className="button-primary upload-form__submit" disabled={busy}>
+        {needsReason ? "Scan anyway" : "Check this listing"}
       </button>
     </form>
   );

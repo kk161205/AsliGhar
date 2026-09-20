@@ -1,4 +1,4 @@
-import type { ApiErrorBody, ScanResponse, ScanSummary, User } from "./types";
+import type { ApiErrorBody, GateResult, ScanResponse, ScanSummary, User } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string) {
@@ -32,6 +32,8 @@ export interface CreateScanInput {
   rent: number;
   bhk?: string;
   description?: string;
+  // Why an unusual rent is right; only sent once the user has been asked.
+  overrideReason?: string;
 }
 
 export async function createScan(input: CreateScanInput): Promise<ScanResponse> {
@@ -44,6 +46,7 @@ export async function createScan(input: CreateScanInput): Promise<ScanResponse> 
   formData.append("rent", String(input.rent));
   if (input.bhk) formData.append("bhk", input.bhk);
   if (input.description) formData.append("description", input.description);
+  if (input.overrideReason) formData.append("override_reason", input.overrideReason);
 
   const response = await fetch("/api/v1/scan", {
     method: "POST",
@@ -83,6 +86,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     await parseErrorResponse(response);
   }
   return (await response.json()) as T;
+}
+
+export function precheckRent(rent: number): Promise<GateResult> {
+  return postJson<GateResult>("/api/v1/scan/precheck", { rent });
 }
 
 export interface SignupInput {

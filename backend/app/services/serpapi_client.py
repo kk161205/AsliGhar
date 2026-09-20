@@ -41,11 +41,17 @@ async def verify_key() -> bool:
         return False
 
 
-async def _get(engine: str, params: dict, timeout_seconds: float = REQUEST_TIMEOUT_SECONDS) -> dict:
+async def _get(
+    engine: str,
+    params: dict,
+    timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
+    cache_ttl_seconds: float | None = None,
+) -> dict:
     settings = get_settings()
+    ttl = settings.scan_cache_ttl_seconds if cache_ttl_seconds is None else cache_ttl_seconds
     cache_key = (engine, tuple(sorted(params.items())))
     cached = _cache.get(cache_key)
-    if cached and time.monotonic() - cached[0] < settings.scan_cache_ttl_seconds:
+    if cached and time.monotonic() - cached[0] < ttl:
         logger.info("SerpApi cache hit: engine=%s", engine)
         return cached[1]
 
@@ -96,4 +102,8 @@ async def organic_price_search(query: str, city: str) -> dict:
     """Primary source for price comparables, not a fallback: google_local returns
     agencies/complexes with no price data at all (confirmed against live data),
     so real ₹ figures come from organic snippets instead."""
-    return await _get("google", {"q": query, "location": f"{city}, India"})
+    return await _get(
+        "google",
+        {"q": query, "location": f"{city}, India"},
+        cache_ttl_seconds=get_settings().price_cache_ttl_seconds,
+    )

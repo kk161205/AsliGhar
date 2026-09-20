@@ -8,8 +8,24 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.models.db import Scan, async_session
-from app.models.schemas import ImageMatchEvidence, ScanResponse, ScanSignals, ScanSummary
-from app.services import evidence, groq_client, image_host, scoring, serpapi_client
+from app.models.schemas import (
+    ImageMatchEvidence,
+    ScanResponse,
+    ScanSignals,
+    ScanSummary,
+    SearchTrace,
+    TraceQuery,
+    UnderstoodInput,
+)
+from app.services import (
+    evidence,
+    groq_client,
+    image_host,
+    input_review,
+    query_builder,
+    scoring,
+    serpapi_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +49,12 @@ def _discard_unretrieved(lens_results: list, saved_paths: list) -> list:
     return checked
 
 
-def _price_query(bhk: str | None, city: str) -> str:
-    # "price" biases the organic engine toward snippets that actually quote a
-    # rupee figure — confirmed against live data.
-    return " ".join(filter(None, [bhk, "rent", city, "price"]))
+async def _review(
+    address: str, city: str, description: str | None
+) -> input_review.NormalizedInput | None:
+    if not get_settings().supervisor_enabled:
+        return None
+    return await input_review.review_input(address, city, description)
 
 
 async def run_scan(
@@ -47,20 +65,48 @@ async def run_scan(
     bhk: str | None,
     description: str | None,
     user_id: str,
+    override_reason: str | None = None,
 ) -> ScanResponse:
     image_host.cleanup_expired(get_settings().image_ttl_minutes)
     saved_paths = [image_host.save_upload(content, suffix) for content, suffix in photos]
     image_urls = [_public_image_url(path.name) for path in saved_paths]
 
-    lens_calls = [serpapi_client.reverse_image_search(url) for url in image_urls]
-    tasks = [
-        *lens_calls,
+    # Photo searches are slow and need nothing from the reviewer, so they start
+    # first and run while the address is being read.
+    lens_tasks = [asyncio.ensure_future(serpapi_client.reverse_image_search(url)) for url in image_urls]
+
+    reviewed = await _review(address, city, description)
+    # A stated BHK wins; otherwise only one written in the description is used —
+    # never guessed.
+    stated_bhk = bhk or input_review.extract_bhk(description or "")
+    locality = reviewed.locality if reviewed else None
+    price_query = query_builder.price_query(stated_bhk, locality, city)
+    logger.info("Searching: price_query=%r reviewer_used=%s", price_query, reviewed is not None)
+
+    # The address check always searches the address exactly as submitted: a
+    # rewritten query could make a made-up address resolve.
+    results = await asyncio.gather(
+        *lens_tasks,
         serpapi_client.resolve_address(address),
-        serpapi_client.organic_price_search(_price_query(bhk, city), city),
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+        serpapi_client.organic_price_search(price_query, city),
+        return_exceptions=True,
+    )
     lens_results, maps_result, price_result = results[: len(image_urls)], results[-2], results[-1]
     lens_results = _discard_unretrieved(lens_results, saved_paths)
+    trace = SearchTrace(
+        reviewer_used=reviewed is not None,
+        understood=UnderstoodInput(
+            address_city=reviewed.address_city if reviewed else None,
+            locality=locality,
+            landmark=reviewed.landmark if reviewed else None,
+            pincode=reviewed.pincode if reviewed else None,
+            bhk=stated_bhk,
+        ),
+        queries=[
+            TraceQuery(check="address", query=address),
+            TraceQuery(check="price", query=price_query),
+        ],
+    )
 
     image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city)
     address_signal = evidence.extract_address_validity(maps_result)
@@ -108,6 +154,8 @@ async def run_scan(
                 signals_json=signals.model_dump(),
                 evidence_json=evidence_payload,
                 ai_summary=ai_summary,
+                override_reason=override_reason,
+                trace_json=trace.model_dump(),
             )
         )
         await session.commit()
@@ -123,6 +171,8 @@ async def run_scan(
         evidence=image_evidence,
         ai_summary=ai_summary,
         created_at=created_at,
+        override_reason=override_reason,
+        search_trace=trace,
     )
 
 
@@ -139,6 +189,8 @@ async def get_scan(scan_id: str) -> ScanResponse | None:
         evidence=[ImageMatchEvidence.model_validate(item) for item in row.evidence_json],
         ai_summary=row.ai_summary,
         created_at=row.created_at,
+        override_reason=row.override_reason,
+        search_trace=SearchTrace.model_validate(row.trace_json) if row.trace_json else None,
     )
 
 

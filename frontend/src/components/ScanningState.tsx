@@ -6,8 +6,9 @@ interface ChecklistStep {
   // Expected completion time, in ms after submit. These are a paced UX
   // approximation, not literal backend telemetry — the API returns one
   // combined JSON response, it doesn't stream per-check progress. The order
-  // and timing are set from real measured latency: address/price resolve in
-  // ~4s, google_lens (the photo check) is the long pole at ~9-12s. If the
+  // and timing are set from real measured latency: the address is read in
+  // ~0.5-2s, then address/price resolve ~4s later, and google_lens (the photo
+  // check) is the long pole at ~9-12s. If the
   // real response is slower than this schedule, the last step keeps
   // animating rather than falsely completing.
   etaMs: number;
@@ -15,8 +16,9 @@ interface ChecklistStep {
 
 function buildSteps(photoCount: number): ChecklistStep[] {
   return [
-    { id: "address", label: "Verifying address", etaMs: 4500 },
-    { id: "price", label: "Comparing local prices", etaMs: 5000 },
+    { id: "read", label: "Reading your address", etaMs: 1500 },
+    { id: "address", label: "Verifying address", etaMs: 5500 },
+    { id: "price", label: "Comparing local prices", etaMs: 6000 },
     {
       id: "photos",
       label: `Checking ${photoCount} photo${photoCount === 1 ? "" : "s"} for reuse`,

@@ -85,6 +85,10 @@ class Scan(Base):
     signals_json: Mapped[dict] = mapped_column(JSON)
     evidence_json: Mapped[list] = mapped_column(JSON)
     ai_summary: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Nullable: scans stored before the input review existed have neither
+    # (see scripts/migrate_2026_09_21_add_scan_trace.py).
+    override_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    trace_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 async def init_db() -> None:

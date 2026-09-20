@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 
@@ -79,14 +80,69 @@ async def verify_key() -> bool:
     if not settings.groq_api_key:
         logger.error("Groq verification failed: GROQ_API_KEY is not set")
         return False
-    client = AsyncGroq(api_key=settings.groq_api_key)
     try:
-        await client.models.list()
+        async with AsyncGroq(api_key=settings.groq_api_key) as client:
+            await client.models.list()
         logger.info("Groq key verified")
         return True
     except Exception as exc:
         logger.error("Groq verification failed: %s", exc)
         return False
+
+
+def _parse_json_object(text: str) -> dict | None:
+    # Some models wrap their answer in <think> blocks or prose; take the
+    # outermost {...} and require it to be an object.
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    try:
+        parsed = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+async def json_completion(
+    model: str,
+    system: str,
+    user: str,
+    *,
+    timeout_seconds: float,
+    max_tokens: int = 300,
+    reasoning_effort: str | None = None,
+) -> dict | None:
+    """One JSON-object completion at temperature 0.
+
+    Returns the parsed object, or None on any failure (logged). Callers are
+    expected to degrade rather than fail — these calls improve a scan, they
+    are never required for it.
+    """
+    settings = get_settings()
+    try:
+        async with AsyncGroq(api_key=settings.groq_api_key) as client:
+            completion = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=model,
+                    temperature=0,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"},
+                    extra_body={"reasoning_effort": reasoning_effort} if reasoning_effort else None,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                ),
+                timeout=timeout_seconds,
+            )
+    except (GroqError, asyncio.TimeoutError) as exc:
+        logger.warning("Groq JSON call failed on model=%s: %s", model, exc)
+        return None
+    parsed = _parse_json_object(completion.choices[0].message.content or "")
+    if parsed is None:
+        logger.warning("Groq JSON call on model=%s returned no valid JSON object", model)
+    return parsed
 
 
 def _build_user_prompt(
@@ -114,7 +170,6 @@ async def summarize_evidence(
     listing_description: str | None = None,
 ) -> str | None:
     settings = get_settings()
-    client = AsyncGroq(api_key=settings.groq_api_key)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
@@ -123,35 +178,36 @@ async def summarize_evidence(
         },
     ]
 
-    for model in (settings.groq_model, settings.groq_fallback_model):
-        try:
-            completion = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=model,
-                    temperature=SUMMARY_TEMPERATURE,
-                    max_tokens=MAX_SUMMARY_TOKENS,
-                    extra_body={"reasoning_effort": REASONING_EFFORT},
-                    messages=messages,
-                ),
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
-            content = completion.choices[0].message.content
-            if not content:
-                logger.warning(
-                    "Groq summarization on model=%s returned empty content "
-                    "(finish_reason=%s), trying next model",
-                    model,
-                    completion.choices[0].finish_reason,
+    async with AsyncGroq(api_key=settings.groq_api_key) as client:
+        for model in (settings.groq_model, settings.groq_fallback_model):
+            try:
+                completion = await asyncio.wait_for(
+                    client.chat.completions.create(
+                        model=model,
+                        temperature=SUMMARY_TEMPERATURE,
+                        max_tokens=MAX_SUMMARY_TOKENS,
+                        extra_body={"reasoning_effort": REASONING_EFFORT},
+                        messages=messages,
+                    ),
+                    timeout=REQUEST_TIMEOUT_SECONDS,
                 )
-                continue
-            return _sanitize_summary(content)
-        except AuthenticationError as exc:
-            # A bad key fails identically on every model — trying the fallback
-            # would just waste a round trip on the same error.
-            logger.error("Groq authentication failed, not retrying: %s", exc)
-            return None
-        except (GroqError, asyncio.TimeoutError) as exc:
-            logger.warning("Groq call failed on model=%s, trying next model: %s", model, exc)
+                content = completion.choices[0].message.content
+                if not content:
+                    logger.warning(
+                        "Groq summarization on model=%s returned empty content "
+                        "(finish_reason=%s), trying next model",
+                        model,
+                        completion.choices[0].finish_reason,
+                    )
+                    continue
+                return _sanitize_summary(content)
+            except AuthenticationError as exc:
+                # A bad key fails identically on every model — trying the fallback
+                # would just waste a round trip on the same error.
+                logger.error("Groq authentication failed, not retrying: %s", exc)
+                return None
+            except (GroqError, asyncio.TimeoutError) as exc:
+                logger.warning("Groq call failed on model=%s, trying next model: %s", model, exc)
 
     logger.error("Groq summarization failed: primary and fallback models both unavailable")
     return None
