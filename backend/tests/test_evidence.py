@@ -12,14 +12,14 @@ def test_extract_image_reuse_flags_classifieds_price_mismatch() -> None:
             "visual_matches": [
                 {
                     "title": "2BHK flat for rent - Pune",
-                    "link": "https://olx.in/item/xxxxx",
-                    "source": "olx.in",
+                    "link": "https://www.olx.in/en-in/item/xxxxx",
+                    "source": "OLX",
                     "price": {"value": "₹9,500", "extracted_value": 9500},
                 },
                 {
                     "title": "Unrelated furniture ad",
                     "link": "https://example.com/x",
-                    "source": "example.com",
+                    "source": "Example",
                     "price": {"extracted_value": 9500},
                 },
             ]
@@ -43,7 +43,7 @@ def test_extract_image_reuse_ignores_non_classifieds_domains() -> None:
                 {
                     "title": "Random blog repost",
                     "link": "https://someblog.example",
-                    "source": "someblog.example",
+                    "source": "Some Blog",
                     "price": {"extracted_value": 1},
                 }
             ]
@@ -158,3 +158,45 @@ def test_price_deviation_counts_for_less_when_no_bhk_was_given() -> None:
     assert unknown.score == scoring.PRICE_DEVIATION_UNKNOWN_BHK_MAX
     assert "all sizes" in unknown.finding
     assert "all sizes" not in known.finding
+
+
+def test_a_classifieds_site_is_recognised_by_its_link_not_its_display_name() -> None:
+    links = [
+        "https://www.olx.in/en-in/item/3-bhk-house-iid-1855312754",
+        "https://m.facebook.com/marketplace/item/123",
+        "https://housing.com/rent/flat-1",
+    ]
+    for link in links:
+        lens_results = [
+            {"visual_matches": [{"title": "Flat", "link": link, "source": "Some Site Name", "price": {"extracted_value": 9500}}]}
+        ]
+        _, matches = evidence.extract_image_reuse(lens_results, submitted_price=15000, submitted_city="Bengaluru")
+        assert len(matches) == 1, link
+
+
+def test_a_look_alike_host_is_not_a_classifieds_site() -> None:
+    for link in ("https://notolx.in/x", "https://olx.in.evil.example/x", "https://example.com/olx.in"):
+        lens_results = [{"visual_matches": [{"title": "Flat", "link": link, "source": "OLX", "price": {"extracted_value": 9500}}]}]
+        _, matches = evidence.extract_image_reuse(lens_results, submitted_price=15000, submitted_city="Bengaluru")
+        assert matches == [], link
+
+
+def test_a_classifieds_match_with_nothing_to_compare_is_mentioned_but_not_scored() -> None:
+    lens_results = [
+        {"visual_matches": [{"title": "3BHK house for sale", "link": "https://www.olx.in/item/1", "source": "OLX"}]}
+    ]
+    signal, matches = evidence.extract_image_reuse(lens_results, submitted_price=150000, submitted_city="Agra")
+
+    assert matches == []
+    assert signal.score == 0
+    assert "1 classifieds listing(s) show the same photo" in signal.finding
+
+
+def test_a_rent_far_above_the_median_is_not_called_plausible() -> None:
+    organic_result = {"organic_results": [{"title": "", "snippet": f"₹{amount:,}/month"} for amount in (19_000, 20_000, 21_000)]}
+
+    signal = evidence.extract_price_deviation(organic_result, submitted_rent=150_000, bhk_known=True)
+
+    assert signal.score == 0
+    assert "above the estimated local median" in signal.finding
+    assert "plausible" not in signal.finding

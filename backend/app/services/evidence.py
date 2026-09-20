@@ -10,6 +10,7 @@ organic `google` engine instead.
 import logging
 import re
 import statistics
+from urllib.parse import urlparse
 
 from app.models.schemas import ImageMatchEvidence, SignalResult
 from app.services import cities, scoring
@@ -61,6 +62,22 @@ MAX_MONTHLY_RENT = 500_000
 # points. Real listings' price_deviation findings have shown 12-16 samples in
 # practice, so 3 is a conservative floor, not a bar that starves the signal.
 MIN_PRICE_SAMPLES = 3
+# A rent this far over the median is worth saying so, even though only cheap
+# rents add to the risk score.
+NOTABLY_ABOVE_MEDIAN_PCT = 50
+
+
+def _classifieds_domain(link: str) -> str | None:
+    """The classifieds site a Lens match links to, or None.
+
+    Taken from the link, not the match's `source`: Lens fills `source` with a
+    display name ("OLX", "Facebook") that is only sometimes a domain.
+    """
+    host = (urlparse(link).hostname or "").lower()
+    for domain in CLASSIFIEDS_DOMAINS:
+        if host == domain or host.endswith(f".{domain}"):
+            return domain
+    return None
 
 
 def _other_city_in_title(title: str, submitted_city: str) -> str | None:
@@ -93,6 +110,7 @@ def extract_image_reuse(
         )
 
     contradicting: list[ImageMatchEvidence] = []
+    uncomparable = 0
     for photo_index, result in enumerate(lens_results):
         if isinstance(result, Exception):
             logger.warning("google_lens failed for photo %s: %s", photo_index, result)
@@ -101,9 +119,16 @@ def extract_image_reuse(
         # omits `visual_matches` entirely and returns an `ai_overview` block
         # instead — expected behavior, not a malformed response, hence the
         # defensive default rather than an assumption the key always exists.
-        for match in result.get("visual_matches", []):
-            domain = match.get("source", "").strip().lower()
-            if domain not in CLASSIFIEDS_DOMAINS:
+        visual_matches = result.get("visual_matches", [])
+        logger.info(
+            "google_lens photo %s: %s visual matches, %s on classifieds sites",
+            photo_index,
+            len(visual_matches),
+            sum(_classifieds_domain(match.get("link", "")) is not None for match in visual_matches),
+        )
+        for match in visual_matches:
+            domain = _classifieds_domain(match.get("link", ""))
+            if domain is None:
                 continue
             title = match.get("title", "")
             listed_price = (match.get("price") or {}).get("extracted_value")
@@ -115,6 +140,7 @@ def extract_image_reuse(
                 > PRICE_MISMATCH_TOLERANCE_PCT
             )
             if not price_mismatch and listed_city is None:
+                uncomparable += 1
                 continue
             contradicting.append(
                 ImageMatchEvidence(
@@ -138,6 +164,11 @@ def extract_image_reuse(
         if contradicting
         else "No photos found reused on other listings with a conflicting price or city."
     )
+    if uncomparable:
+        finding += (
+            f" {uncomparable} classifieds listing(s) show the same photo, but none has a price "
+            "or city to compare."
+        )
     if failed_photos:
         finding += f" {failed_photos} photo(s) couldn't be checked."
     return SignalResult(score=score, max=scoring.IMAGE_REUSE_MAX, finding=finding), contradicting
@@ -243,12 +274,19 @@ def extract_price_deviation(organic_result, submitted_rent: int, *, bhk_known: b
     median_rent = statistics.median(prices)
     score = scoring.price_deviation_score(submitted_rent, median_rent, max_score)
     deviation_pct = max(0.0, (median_rent - submitted_rent) / median_rent * 100)
-    finding = (
-        f"Rent is {deviation_pct:.0f}% below the estimated local median "
-        f"(₹{median_rent:,.0f}) based on {len(prices)} comparable mentions."
-        if score > 0
-        else f"Rent is within a plausible range of the estimated local median (₹{median_rent:,.0f})."
-    )
+    above_pct = (submitted_rent - median_rent) / median_rent * 100
+    if score > 0:
+        finding = (
+            f"Rent is {deviation_pct:.0f}% below the estimated local median "
+            f"(₹{median_rent:,.0f}) based on {len(prices)} comparable mentions."
+        )
+    elif above_pct > NOTABLY_ABOVE_MEDIAN_PCT:
+        finding = (
+            f"Rent is {above_pct:.0f}% above the estimated local median (₹{median_rent:,.0f}). "
+            "Only rents below the median add to the risk score."
+        )
+    else:
+        finding = f"Rent is within a plausible range of the estimated local median (₹{median_rent:,.0f})."
     if not bhk_known:
         finding += " No home size was given, so this compares across all sizes and counts for less."
     return SignalResult(score=score, max=max_score, finding=finding)

@@ -6,8 +6,8 @@ from app.models.schemas import ScanResponse, ScanSignals, SignalResult
 from app.services import evidence
 
 
-def _lens(title: str, price: int | None = None, source: str = "olx.in") -> list[dict]:
-    match = {"title": title, "link": "https://olx.in/x", "source": source}
+def _lens(title: str, price: int | None = None, source: str = "OLX") -> list[dict]:
+    match = {"title": title, "link": "https://www.olx.in/x", "source": source}
     if price is not None:
         match["price"] = {"extracted_value": price}
     return [{"visual_matches": [match]}]
@@ -94,8 +94,8 @@ def test_finding_counts_photos_not_matches() -> None:
     two_matches_one_photo = [
         {
             "visual_matches": [
-                {"title": "Flat in Pune", "link": "https://olx.in/1", "source": "olx.in"},
-                {"title": "Flat in Mumbai", "link": "https://olx.in/2", "source": "olx.in"},
+                {"title": "Flat in Pune", "link": "https://www.olx.in/1", "source": "OLX"},
+                {"title": "Flat in Mumbai", "link": "https://www.olx.in/2", "source": "OLX"},
             ]
         },
         {"visual_matches": []},
