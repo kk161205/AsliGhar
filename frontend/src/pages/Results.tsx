@@ -50,6 +50,11 @@ export default function Results() {
             <h1>Scan result</h1>
             <p className="mono results__id">{state.scan.scan_id}</p>
             <RiskGauge score={state.scan.risk_score} band={state.scan.risk_band} />
+            {state.scan.partial && (
+              <p role="note" className="results__partial">
+                Some checks couldn't run, so this score may understate the risk.
+              </p>
+            )}
 
             <section className="results__signals">
               <SignalRow label="Image reuse" signal={state.scan.signals.image_reuse} />

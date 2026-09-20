@@ -4,6 +4,8 @@ export interface SignalResult {
   score: number;
   max: number;
   finding: string;
+  // "unavailable": the check couldn't run — not the same as a clean 0.
+  status: "ok" | "unavailable";
 }
 
 export interface ScanSignals {
@@ -32,6 +34,7 @@ export interface ScanResponse {
   evidence: ImageMatchEvidence[];
   ai_summary: string | null;
   created_at: string;
+  partial: boolean;
 }
 
 export interface ScanSummary {

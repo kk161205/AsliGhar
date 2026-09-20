@@ -3,7 +3,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
 from app.api.auth import router as auth_router
@@ -12,7 +11,7 @@ from app.core.health import check_dependencies
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter, log_rate_limit_exceeded
 from app.models.db import init_db
-from app.services.image_host import STATIC_DIR
+from app.services.image_host import STATIC_DIR, TrackingStaticFiles
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +47,7 @@ app.add_middleware(
 
 app.include_router(scan_router)
 app.include_router(auth_router)
-app.mount("/static/scans", StaticFiles(directory=STATIC_DIR), name="scans")
+app.mount("/static/scans", TrackingStaticFiles(directory=STATIC_DIR), name="scans")
 
 
 @app.get("/health")

@@ -12,26 +12,36 @@ interface SignalRowProps {
 // precision the backend's scoring was built to carry. The exact score and the
 // full finding text are always shown instead; the proportional bar is a plain,
 // single-tone visual aid, not a second, lossier encoding of the same signal.
+//
+// A check that couldn't run is shown as exactly that, with no score and no bar:
+// "0 / 40" would read as "checked and clean", which is the opposite of the truth.
 export default function SignalRow({ label, signal }: SignalRowProps) {
+  const unavailable = signal.status === "unavailable";
   const ratio = signal.max > 0 ? signal.score / signal.max : 0;
   return (
     <div className="signal-row">
       <div className="signal-row__header">
         <span className="signal-row__label">{label}</span>
-        <span className="signal-row__score mono">
-          {signal.score} / {signal.max}
-        </span>
+        {unavailable ? (
+          <span className="signal-row__score signal-row__score--unavailable">Couldn't check</span>
+        ) : (
+          <span className="signal-row__score mono">
+            {signal.score} / {signal.max}
+          </span>
+        )}
       </div>
-      <div
-        className="signal-row__track"
-        role="progressbar"
-        aria-valuenow={signal.score}
-        aria-valuemin={0}
-        aria-valuemax={signal.max}
-        aria-label={`${label}: ${signal.score} out of ${signal.max}`}
-      >
-        <div className="signal-row__fill" style={{ width: `${ratio * 100}%` }} />
-      </div>
+      {!unavailable && (
+        <div
+          className="signal-row__track"
+          role="progressbar"
+          aria-valuenow={signal.score}
+          aria-valuemin={0}
+          aria-valuemax={signal.max}
+          aria-label={`${label}: ${signal.score} out of ${signal.max}`}
+        >
+          <div className="signal-row__fill" style={{ width: `${ratio * 100}%` }} />
+        </div>
+      )}
       <p className="signal-row__finding">{signal.finding}</p>
     </div>
   );

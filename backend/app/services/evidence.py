@@ -12,7 +12,7 @@ import re
 import statistics
 
 from app.models.schemas import ImageMatchEvidence, SignalResult
-from app.services import scoring
+from app.services import cities, scoring
 
 logger = logging.getLogger(__name__)
 
@@ -35,25 +35,6 @@ CLASSIFIEDS_DOMAINS = {
     "squareyards.com",
 }
 PRICE_MISMATCH_TOLERANCE_PCT = 10  # a listed price is "different" beyond 10% of the submitted rent
-
-MAJOR_INDIAN_CITIES = {
-    "mumbai", "delhi", "new delhi", "bengaluru", "bangalore", "hyderabad",
-    "chennai", "kolkata", "pune", "ahmedabad", "jaipur", "surat", "lucknow",
-    "kanpur", "nagpur", "indore", "bhopal", "patna", "vadodara", "ghaziabad",
-    "ludhiana", "agra", "nashik", "faridabad", "meerut", "rajkot", "varanasi",
-    "srinagar", "amritsar", "chandigarh", "gurugram", "gurgaon", "noida",
-    "kochi", "coimbatore", "visakhapatnam",
-    # Expanded 2026-09-20 — a scam listing's contradicting match is just as
-    # likely to be in a tier-2 city as a metro; this remains a hardcoded set
-    # (not a geocoding lookup) so coverage is inherently partial, but a wider
-    # list catches more real cases for the same cost.
-    "thane", "navi mumbai", "thiruvananthapuram", "guwahati", "bhubaneswar",
-    "dehradun", "raipur", "ranchi", "jodhpur", "madurai", "mysuru", "mysore",
-    "nellore", "vijayawada", "aurangabad", "solapur", "hubli", "mangaluru",
-    "mangalore", "tiruchirappalli", "salem", "warangal", "jamshedpur",
-    "gwalior", "jabalpur", "allahabad", "prayagraj", "howrah", "bareilly",
-    "moradabad",
-}
 
 # Substring match, not exact — Google's place categories are inconsistent
 # ("Real estate rental agency" vs "real estate agency", "Condominium complex", etc).
@@ -82,18 +63,35 @@ MAX_MONTHLY_RENT = 500_000
 MIN_PRICE_SAMPLES = 3
 
 
-def _mentions_other_city(text: str, submitted_city: str) -> str | None:
-    lower = text.lower()
-    submitted_lower = submitted_city.strip().lower()
-    for city in MAJOR_INDIAN_CITIES:
-        if city in lower and city != submitted_lower and city not in submitted_lower:
-            return city.title()
-    return None
+def _other_city_in_title(title: str, submitted_city: str) -> str | None:
+    """A city the title names that isn't the submitted one, or None.
+
+    A title that also names the submitted city ("Near Delhi Public School,
+    Bengaluru") isn't a contradiction, and neither is a spelling variant of it
+    ("Bangalore" vs "Bengaluru") — both are handled by canonical names.
+    """
+    mentioned = cities.cities_mentioned(title)
+    if not mentioned or cities.canonical_city(submitted_city) in mentioned:
+        return None
+    return sorted(mentioned)[0].title()
 
 
 def extract_image_reuse(
     lens_results: list, submitted_price: int, submitted_city: str
 ) -> tuple[SignalResult, list[ImageMatchEvidence]]:
+    failed_photos = sum(isinstance(result, Exception) for result in lens_results)
+    if lens_results and failed_photos == len(lens_results):
+        logger.warning("google_lens failed for all %s photos", failed_photos)
+        return (
+            SignalResult(
+                score=0,
+                max=scoring.IMAGE_REUSE_MAX,
+                status="unavailable",
+                finding="Couldn't check the photos for reuse — the image search didn't return a usable result.",
+            ),
+            [],
+        )
+
     contradicting: list[ImageMatchEvidence] = []
     for photo_index, result in enumerate(lens_results):
         if isinstance(result, Exception):
@@ -109,7 +107,7 @@ def extract_image_reuse(
                 continue
             title = match.get("title", "")
             listed_price = (match.get("price") or {}).get("extracted_value")
-            listed_city = _mentions_other_city(title, submitted_city)
+            listed_city = _other_city_in_title(title, submitted_city)
             price_mismatch = (
                 listed_price is not None
                 and submitted_price > 0
@@ -132,12 +130,16 @@ def extract_image_reuse(
             )
 
     score = scoring.image_reuse_score(len(contradicting))
+    checked = len(lens_results) - failed_photos
+    photos_with_matches = len({item.photo_index for item in contradicting})
     finding = (
-        f"{len(contradicting)} of {len(lens_results)} photos found on other listings "
+        f"{photos_with_matches} of {checked} photos found on other listings "
         "with a different price or city."
         if contradicting
         else "No photos found reused on other listings with a conflicting price or city."
     )
+    if failed_photos:
+        finding += f" {failed_photos} photo(s) couldn't be checked."
     return SignalResult(score=score, max=scoring.IMAGE_REUSE_MAX, finding=finding), contradicting
 
 
@@ -155,9 +157,10 @@ def extract_address_validity(maps_result) -> SignalResult:
     if isinstance(maps_result, Exception):
         logger.warning("google_maps failed: %s", maps_result)
         return SignalResult(
-            score=scoring.ADDRESS_AMBIGUOUS_SCORE,
+            score=0,
             max=scoring.ADDRESS_VALIDITY_MAX,
-            finding="Address lookup failed; could not verify it independently.",
+            status="unavailable",
+            finding="Couldn't look up the address — the maps search didn't respond.",
         )
 
     place = _place_candidate(maps_result)
@@ -223,7 +226,8 @@ def extract_price_deviation(organic_result, submitted_rent: int) -> SignalResult
         return SignalResult(
             score=0,
             max=scoring.PRICE_DEVIATION_MAX,
-            finding="Could not gather comparable price data for this locality.",
+            status="unavailable",
+            finding="Couldn't gather comparable rents — the price search didn't respond.",
         )
 
     prices = _extract_monthly_prices(organic_result.get("organic_results", []))
@@ -231,6 +235,7 @@ def extract_price_deviation(organic_result, submitted_rent: int) -> SignalResult
         return SignalResult(
             score=0,
             max=scoring.PRICE_DEVIATION_MAX,
+            status="unavailable",
             finding="Not enough comparable price data found for this locality to judge price deviation.",
         )
 

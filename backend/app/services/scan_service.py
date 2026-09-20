@@ -17,6 +17,22 @@ SCAN_ID_LENGTH = 10
 RECENT_SCANS_LIMIT = 20
 
 
+def _discard_unretrieved(lens_results: list, saved_paths: list) -> list:
+    """Replace the Lens result of any photo nobody downloaded with a failure.
+
+    Lens reports "no matches" identically whether it found none or never saw
+    the image, so a result for a photo that wasn't actually fetched must not
+    be read as "checked and clean".
+    """
+    checked = []
+    for result, path in zip(lens_results, saved_paths):
+        if not isinstance(result, Exception) and not image_host.was_fetched(path.name):
+            logger.warning("Image search never requested photo %s; ignoring its result", path.name)
+            result = image_host.PhotoNotRetrieved(path.name)
+        checked.append(result)
+    return checked
+
+
 def _price_query(bhk: str | None, city: str) -> str:
     # "price" biases the organic engine toward snippets that actually quote a
     # rupee figure — confirmed against live data.
@@ -44,6 +60,7 @@ async def run_scan(
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     lens_results, maps_result, price_result = results[: len(image_urls)], results[-2], results[-1]
+    lens_results = _discard_unretrieved(lens_results, saved_paths)
 
     image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city)
     address_signal = evidence.extract_address_validity(maps_result)

@@ -1,15 +1,21 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 RiskBand = Literal["Low", "Moderate", "High", "Severe"]
+# "unavailable" means the check couldn't run (a search failed, or too little
+# data to judge) — distinct from "ok with a score of 0", which means it ran
+# and found nothing worrying. Stored scans from before this field existed
+# parse as "ok".
+SignalStatus = Literal["ok", "unavailable"]
 
 
 class SignalResult(BaseModel):
     score: int
     max: int
     finding: str
+    status: SignalStatus = "ok"
 
 
 class ScanSignals(BaseModel):
@@ -38,6 +44,12 @@ class ScanResponse(BaseModel):
     evidence: list[ImageMatchEvidence]
     ai_summary: Optional[str] = None
     created_at: datetime
+
+    @computed_field  # derived, so it's right for stored scans too, not just new ones
+    @property
+    def partial(self) -> bool:
+        checks = (self.signals.image_reuse, self.signals.price_deviation, self.signals.address_validity)
+        return any(check.status == "unavailable" for check in checks)
 
 
 class ScanSummary(BaseModel):

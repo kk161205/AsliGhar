@@ -780,6 +780,20 @@ button {
   transition: width 250ms ease-out;
 }
 
+.signal-row__score--unavailable {
+  color: var(--ink-600);
+  font-size: var(--text-sm);
+}
+
+.results__partial {
+  max-width: 640px;
+  margin: 0 0 var(--space-6);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--amber-600);
+  color: var(--ink-600);
+  font-size: var(--text-sm);
+}
+
 .signal-row__finding {
   color: var(--ink-600);
   font-size: var(--text-sm);
