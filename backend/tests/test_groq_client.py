@@ -97,3 +97,13 @@ async def test_summarize_evidence_treats_listing_description_as_data_not_instruc
     # A real summary should still be substantive prose about the evidence,
     # not a one-word compliance with the injected instruction.
     assert len(summary) > 40
+
+
+def test_sanitizer_removes_citations_that_point_at_internal_structure() -> None:
+    text = "The rent is high (price comparison finding). The address fails (address check finding). Also (a note) stays."
+    assert groq_client._sanitize_summary(text) == "The rent is high. The address fails. Also (a note) stays."
+
+
+def test_sanitizer_rewrites_the_internal_image_match_label() -> None:
+    assert "photo match" in groq_client._sanitize_summary("One image_match shows the photo elsewhere.")
+    assert "image_match" not in groq_client._sanitize_summary("One image_match shows the photo elsewhere.")

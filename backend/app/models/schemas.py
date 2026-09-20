@@ -11,11 +11,20 @@ RiskBand = Literal["Low", "Moderate", "High", "Severe"]
 SignalStatus = Literal["ok", "unavailable"]
 
 
+class SignalSource(BaseModel):
+    """One concrete thing a signal's finding rests on, with a link where there is one."""
+
+    title: str
+    url: Optional[str] = None
+    detail: str
+
+
 class SignalResult(BaseModel):
     score: int
     max: int
     finding: str
     status: SignalStatus = "ok"
+    sources: list[SignalSource] = []
 
 
 class ScanSignals(BaseModel):
@@ -34,6 +43,10 @@ class ImageMatchEvidence(BaseModel):
     submitted_price: int
     listed_city: Optional[str] = None
     submitted_city: str
+    # Why this exact copy of the photo contradicts the submitted listing —
+    # each reason is read straight from the page's own title, URL or price.
+    reasons: list[str] = []
+    listing_type: Optional[Literal["sale", "rent"]] = None
 
 
 class UnderstoodInput(BaseModel):

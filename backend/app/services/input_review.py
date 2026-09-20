@@ -42,12 +42,6 @@ _EXPANSIONS = {
     "block", "road", "street", "layout", "sector", "phase", "stage", "nagar",
     "main", "cross", "east", "west", "north", "south", "extension",
 }
-_BHK_PATTERNS = (
-    (re.compile(r"(?<!\d)(\d)\s*-?\s*bhk", re.IGNORECASE), lambda m: f"{m.group(1)}BHK"),
-    (re.compile(r"(?<!\d)(\d)\s*-?\s*bed\s?rooms?", re.IGNORECASE), lambda m: f"{m.group(1)}BHK"),
-    (re.compile(r"\b1\s*-?\s*rk\b", re.IGNORECASE), lambda m: "1RK"),
-    (re.compile(r"\bstudio\b", re.IGNORECASE), lambda m: "Studio"),
-)
 
 
 class NormalizedInput(BaseModel):
@@ -66,15 +60,6 @@ class NormalizedInput(BaseModel):
     @classmethod
     def _pincode_as_text(cls, value):
         return str(value) if isinstance(value, int) else value
-
-
-def extract_bhk(text: str) -> str | None:
-    """BHK read straight from the text by pattern — a regex can't invent one."""
-    for pattern, render in _BHK_PATTERNS:
-        match = pattern.search(text or "")
-        if match:
-            return render(match)
-    return None
 
 
 def _words_present(value: str, text: str) -> bool:

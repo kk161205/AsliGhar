@@ -7,10 +7,10 @@ from app.services import evidence
 
 
 def _lens(title: str, price: int | None = None, source: str = "OLX") -> list[dict]:
-    match = {"title": title, "link": "https://www.olx.in/x", "source": source}
+    match = {"title": title, "link": "https://www.olx.in/item/x", "source": source}
     if price is not None:
         match["price"] = {"extracted_value": price}
-    return [{"visual_matches": [match]}]
+    return [{"exact_matches": [match]}]
 
 
 # --- a failed check must not read as a clean one -------------------------------
@@ -23,12 +23,12 @@ def test_every_lens_call_failing_is_unavailable_not_clean() -> None:
     assert signal.status == "unavailable"
     assert signal.score == 0
     assert matches == []
-    assert "No photos found" not in signal.finding
+    assert "weren't found" not in signal.finding
 
 
 def test_some_lens_calls_failing_stays_ok_but_says_so() -> None:
     signal, _ = evidence.extract_image_reuse(
-        [{"visual_matches": []}, httpx.TimeoutException("t")],
+        [{"exact_matches": []}, httpx.TimeoutException("t")],
         submitted_price=15000,
         submitted_city="Bengaluru",
     )
@@ -37,21 +37,21 @@ def test_some_lens_calls_failing_stays_ok_but_says_so() -> None:
 
 
 def test_address_lookup_failure_is_unavailable_and_scores_nothing() -> None:
-    signal = evidence.extract_address_validity(httpx.TimeoutException("t"))
+    signal = evidence.extract_address_validity(httpx.TimeoutException("t"), "Bengaluru", city_added=False)
     assert signal.status == "unavailable"
     assert signal.score == 0
 
 
 def test_price_lookup_failure_and_thin_data_are_both_unavailable() -> None:
-    failed = evidence.extract_price_deviation(httpx.TimeoutException("t"), submitted_rent=9000, bhk_known=True)
-    thin = evidence.extract_price_deviation({"organic_results": []}, submitted_rent=9000, bhk_known=True)
+    failed = evidence.extract_price_deviation(httpx.TimeoutException("t"), submitted_rent=9000, city="Bengaluru", bhk="2BHK")
+    thin = evidence.extract_price_deviation({"organic_results": []}, submitted_rent=9000, city="Bengaluru", bhk="2BHK")
     assert failed.status == thin.status == "unavailable"
     assert failed.score == thin.score == 0
 
 
 def test_a_completed_check_is_ok_even_with_a_zero_score() -> None:
     signal, _ = evidence.extract_image_reuse(
-        [{"visual_matches": []}], submitted_price=15000, submitted_city="Bengaluru"
+        [{"exact_matches": []}], submitted_price=15000, submitted_city="Bengaluru"
     )
     assert signal.status == "ok"
     assert signal.score == 0
@@ -93,12 +93,12 @@ def test_a_genuinely_different_city_is_still_flagged() -> None:
 def test_finding_counts_photos_not_matches() -> None:
     two_matches_one_photo = [
         {
-            "visual_matches": [
-                {"title": "Flat in Pune", "link": "https://www.olx.in/1", "source": "OLX"},
-                {"title": "Flat in Mumbai", "link": "https://www.olx.in/2", "source": "OLX"},
+            "exact_matches": [
+                {"title": "Flat in Pune", "link": "https://www.olx.in/item/1", "source": "OLX"},
+                {"title": "Flat in Mumbai", "link": "https://www.olx.in/item/2", "source": "OLX"},
             ]
         },
-        {"visual_matches": []},
+        {"exact_matches": []},
     ]
     signal, matches = evidence.extract_image_reuse(
         two_matches_one_photo, submitted_price=15000, submitted_city="Bengaluru"

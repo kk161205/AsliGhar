@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.services import input_review
+from app.services import bhk, input_review
 from app.services.input_review import NormalizedInput
 
 
@@ -62,7 +62,7 @@ def test_an_invented_city_is_dropped() -> None:
     ],
 )
 def test_extract_bhk(text: str, expected: str | None) -> None:
-    assert input_review.extract_bhk(text) == expected
+    assert bhk.extract_bhk(text) == expected
 
 
 # --- live: the real model on the cases that matter ------------------------------

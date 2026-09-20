@@ -85,17 +85,17 @@ async def reverse_image_search(image_url: str) -> dict:
     # (confirmed live: ~9s typical, vs ~4s for maps/local/organic), so it gets
     # its own, wider timeout rather than sharing REQUEST_TIMEOUT_SECONDS.
     settings = get_settings()
+    # exact_matches: pages carrying this same image. The default (visual_matches)
+    # returns look-alikes — other houses that merely resemble the photo.
     return await _get(
-        "google_lens", {"url": image_url}, timeout_seconds=settings.serpapi_lens_timeout_seconds
+        "google_lens",
+        {"url": image_url, "type": "exact_matches"},
+        timeout_seconds=settings.serpapi_lens_timeout_seconds,
     )
 
 
 async def resolve_address(address: str) -> dict:
     return await _get("google_maps", {"q": address})
-
-
-async def local_price_comparables(query: str, city: str) -> dict:
-    return await _get("google_local", {"q": query, "location": f"{city}, India"})
 
 
 async def organic_price_search(query: str, city: str) -> dict:

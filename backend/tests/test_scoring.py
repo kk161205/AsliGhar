@@ -14,8 +14,12 @@ def test_band_for_score_boundaries() -> None:
 
 def test_image_reuse_score_caps_at_max() -> None:
     assert scoring.image_reuse_score(0) == 0
-    assert scoring.image_reuse_score(1) == 10
+    assert scoring.image_reuse_score(1) == scoring.IMAGE_REUSE_PER_PHOTO
     assert scoring.image_reuse_score(10) == scoring.IMAGE_REUSE_MAX
+
+
+def test_one_contradicted_photo_alone_reaches_the_moderate_band() -> None:
+    assert scoring.band_for_score(scoring.image_reuse_score(1)) == "Moderate"
 
 
 def test_price_deviation_score_within_tolerance_is_zero() -> None:

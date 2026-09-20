@@ -115,3 +115,23 @@ def canonical_city(text: str) -> str | None:
         return sorted(mentioned)[0]
     cleaned = (text or "").strip().lower()
     return cleaned or None
+
+
+def is_city_name(text: str) -> bool:
+    """True when the whole text is just a city's name (or alias)."""
+    return (text or "").strip().lower() in _NAME_TO_CANONICAL
+
+
+def mentions_city(text: str, city: str) -> bool:
+    """Whether the text places something in the given (user-typed) city.
+
+    Works for cities we don't list too, by looking for the typed name itself.
+    """
+    canonical = canonical_city(city)
+    if canonical is None:
+        return False
+    if canonical in cities_mentioned(text):
+        return True
+    if canonical in _CANONICAL_TO_ALIASES:
+        return False
+    return re.search(rf"(?<![a-z]){re.escape(canonical)}(?![a-z])", (text or "").lower()) is not None

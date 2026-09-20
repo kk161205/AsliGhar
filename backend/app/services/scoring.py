@@ -1,5 +1,7 @@
 IMAGE_REUSE_MAX = 40
-IMAGE_REUSE_PER_MATCH = 10
+# One photo provably lifted from a contradicting listing is enough on its own
+# to reach the Moderate band; a second photo pushes it towards the cap.
+IMAGE_REUSE_PER_PHOTO = 25
 
 PRICE_DEVIATION_MAX = 30
 # Without a home size the comparison mixes 1BHKs with 4BHKs, so the price check
@@ -11,6 +13,7 @@ PRICE_DEVIATION_FLOOR_PCT = 50
 ADDRESS_VALID_SCORE = 0
 ADDRESS_NO_CATEGORY_DATA_SCORE = 8
 ADDRESS_AMBIGUOUS_SCORE = 15
+ADDRESS_WRONG_CITY_SCORE = 20
 ADDRESS_INVALID_SCORE = 30
 ADDRESS_VALIDITY_MAX = 30
 
@@ -29,8 +32,8 @@ def band_for_score(score: int) -> str:
     return "Severe"
 
 
-def image_reuse_score(contradicting_match_count: int) -> int:
-    return min(contradicting_match_count * IMAGE_REUSE_PER_MATCH, IMAGE_REUSE_MAX)
+def image_reuse_score(contradicted_photo_count: int) -> int:
+    return min(contradicted_photo_count * IMAGE_REUSE_PER_PHOTO, IMAGE_REUSE_MAX)
 
 
 def price_deviation_max(bhk_known: bool) -> int:

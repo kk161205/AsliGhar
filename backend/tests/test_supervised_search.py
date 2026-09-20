@@ -17,6 +17,7 @@ class _Recorder:
         self.maps: list[str] = []
         self.price: list[str] = []
         self.lens: list[str] = []
+        self.price_results = None
 
 
 @pytest.fixture
@@ -25,7 +26,7 @@ def searches(monkeypatch, tmp_path) -> _Recorder:
 
     async def lens(url: str) -> dict:
         recorder.lens.append(url)
-        return {"visual_matches": []}
+        return {"exact_matches": []}
 
     async def maps(address: str) -> dict:
         recorder.maps.append(address)
@@ -33,7 +34,16 @@ def searches(monkeypatch, tmp_path) -> _Recorder:
 
     async def price(query: str, city: str) -> dict:
         recorder.price.append(query)
-        snippets = [{"title": "2 BHK", "snippet": f"₹{amount:,}/month"} for amount in (28_000, 30_000, 32_000)]
+        if recorder.price_results is not None:
+            return recorder.price_results(query)
+        snippets = [
+            {
+                "title": "2 BHK flat for rent in Bengaluru",
+                "snippet": f"2 BHK for rent in Bengaluru. ₹{amount:,}/month.",
+                "link": f"https://example.com/rent/{amount}",
+            }
+            for amount in (28_000, 30_000, 32_000)
+        ]
         return {"organic_results": snippets}
 
     async def summary(**_kwargs) -> str:
@@ -138,23 +148,58 @@ async def test_bhk_is_taken_from_the_description_only_when_the_form_leaves_it_ou
 
 
 async def test_a_gibberish_address_still_fails_the_address_check(searches, monkeypatch) -> None:
-    # The reviewer can tidy the text, but "does this place exist" must still be
-    # answered by searching what the user actually typed.
-    async def no_such_place(address: str) -> dict:
-        searches.maps.append(address)
-        return {}
+    # The address is always searched as typed first. Adding the city may make
+    # Maps answer with the city itself — that must not count as resolving.
+    async def no_such_place(query: str) -> dict:
+        searches.maps.append(query)
+        if query == ADDRESS:
+            return {}
+        return {"local_results": [{"title": "Bengaluru", "address": "Karnataka, India"}]}
 
     monkeypatch.setattr(serpapi_client, "resolve_address", no_such_place)
-    _reviewer(
-        monkeypatch,
-        NormalizedInput(address_resolvable=False, confidence=0.9),
-    )
+    _reviewer(monkeypatch, NormalizedInput(address_resolvable=False, confidence=0.9))
 
     result = await _scan()
 
-    assert searches.maps == [ADDRESS]
+    assert searches.maps == [ADDRESS, f"{ADDRESS}, Bengaluru"]
     assert result.signals.address_validity.score == 30
-    assert "does not resolve" in result.signals.address_validity.finding
+    assert "even with the city added" in result.signals.address_validity.finding
+    assert [q.query for q in result.search_trace.queries if q.check == "address"] == searches.maps
+
+
+async def test_an_address_that_only_resolves_with_the_city_added_says_so(searches, monkeypatch) -> None:
+    async def resolves_with_city(query: str) -> dict:
+        searches.maps.append(query)
+        if query == ADDRESS:
+            return {}
+        return {"place_results": {"title": "Gwalior Rd", "address": "Uttar Pradesh, India", "place_id": "abc"}}
+
+    monkeypatch.setattr(serpapi_client, "resolve_address", resolves_with_city)
+    _reviewer(monkeypatch, None)
+
+    result = await _scan()
+
+    assert searches.maps == [ADDRESS, f"{ADDRESS}, Bengaluru"]
+    assert "Only found once the city was added" in result.signals.address_validity.finding
+    assert result.signals.address_validity.sources[0].url.endswith("place_id:abc")
+
+
+async def test_the_city_is_not_added_when_the_address_alone_resolves(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    await _scan()
+    assert searches.maps == [ADDRESS]
+
+
+async def test_a_failed_maps_lookup_is_unavailable_not_invalid(searches, monkeypatch) -> None:
+    async def down(_query: str) -> dict:
+        raise TimeoutError("maps down")
+
+    monkeypatch.setattr(serpapi_client, "resolve_address", down)
+    _reviewer(monkeypatch, None)
+
+    result = await _scan()
+
+    assert result.signals.address_validity.status == "unavailable"
 
 
 async def test_the_override_reason_is_stored_and_never_changes_the_score(searches, monkeypatch) -> None:
@@ -198,3 +243,50 @@ async def test_the_price_check_counts_for_less_only_when_no_bhk_is_known(searche
     assert with_form_bhk.signals.price_deviation.max == 30
     assert with_description_bhk.signals.price_deviation.max == 30
     assert without.signals.price_deviation.max == 20
+
+
+def _rentals(*amounts: int) -> list[dict]:
+    return [
+        {
+            "title": "2 BHK flat for rent in Bengaluru",
+            "snippet": f"2 BHK for rent in Bengaluru. ₹{amount:,}/month.",
+            "link": f"https://example.com/rent/{amount}",
+        }
+        for amount in amounts
+    ]
+
+
+async def test_too_few_comparables_at_locality_level_widens_to_the_city_once(searches, monkeypatch) -> None:
+    searches.price_results = lambda query: {
+        "organic_results": _rentals(28_000) if "Koramangala" in query else _rentals(28_000, 30_000, 32_000)
+    }
+    _reviewer(monkeypatch, KORAMANGALA)
+
+    result = await _scan(bhk="2BHK")
+
+    assert searches.price == ["2BHK rent Koramangala 5th Block Bengaluru price", "2BHK rent Bengaluru price"]
+    assert [q.query for q in result.search_trace.queries if q.check == "price"] == searches.price
+    price = result.signals.price_deviation
+    assert price.status == "ok"
+    assert len(price.sources) == 3
+
+
+async def test_enough_comparables_at_locality_level_costs_no_extra_search(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, KORAMANGALA)
+    await _scan(bhk="2BHK")
+    assert len(searches.price) == 1
+
+
+async def test_a_failed_wider_search_keeps_what_the_locality_search_found(searches, monkeypatch) -> None:
+    def results(query: str) -> dict:
+        if "Koramangala" not in query:
+            raise TimeoutError("wider search down")
+        return {"organic_results": _rentals(28_000)}
+
+    searches.price_results = results
+    _reviewer(monkeypatch, KORAMANGALA)
+
+    result = await _scan(bhk="2BHK")
+
+    assert result.signals.price_deviation.status == "unavailable"
+    assert len(result.signals.price_deviation.sources) == 1

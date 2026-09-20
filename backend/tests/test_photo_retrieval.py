@@ -29,7 +29,7 @@ def test_a_successful_download_is_recorded_and_a_miss_is_not(tmp_path: Path) -> 
 
 def test_a_photo_nobody_downloaded_has_its_lens_result_discarded() -> None:
     image_host.mark_fetched("fetched.jpg")
-    empty_result = {"visual_matches": []}
+    empty_result = {"exact_matches": []}
 
     checked = scan_service._discard_unretrieved(
         [empty_result, empty_result], [Path("fetched.jpg"), Path("never_fetched.jpg")]
@@ -46,13 +46,13 @@ def test_a_failed_lens_call_is_left_as_the_failure_it_already_is() -> None:
 
 def test_no_photo_being_downloaded_makes_the_image_check_unavailable_not_clean() -> None:
     lens_results = scan_service._discard_unretrieved(
-        [{"visual_matches": []}], [Path("never_fetched.jpg")]
+        [{"exact_matches": []}], [Path("never_fetched.jpg")]
     )
     signal, matches = evidence.extract_image_reuse(
         lens_results, submitted_price=15000, submitted_city="Bengaluru"
     )
     assert signal.status == "unavailable"
-    assert "No photos found" not in signal.finding
+    assert "weren't found" not in signal.finding
     assert matches == []
 
 

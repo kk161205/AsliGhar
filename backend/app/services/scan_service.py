@@ -21,6 +21,7 @@ from app.services import (
     evidence,
     groq_client,
     image_host,
+    bhk as bhk_reader,
     input_review,
     query_builder,
     scoring,
@@ -57,6 +58,55 @@ async def _review(
     return await input_review.review_input(address, city, description)
 
 
+async def _resolve_address(
+    address: str, city: str, queries_used: list[str]
+) -> tuple[dict, bool]:
+    """Look the address up exactly as submitted; only if that finds nothing, retry with the city added.
+
+    Adding the submitted city is not rewriting the claim, but it is only
+    accepted when Maps answers with something more specific than the city
+    itself (see evidence.resolved_place). Returns the result and whether the
+    city had to be added.
+    """
+    queries_used.append(address)
+    first = await serpapi_client.resolve_address(address)
+    if evidence.resolved_place(first, city) is not None:
+        return first, False
+    with_city = f"{address}, {city}"
+    queries_used.append(with_city)
+    return await serpapi_client.resolve_address(with_city), True
+
+
+async def _search_prices(
+    bhk: str | None, locality: str | None, city: str, queries_used: list[str]
+) -> dict:
+    """Search for comparable rents at locality level; widen to the city if that finds too few.
+
+    At most one extra search, and only when the first result has fewer usable
+    comparables than the price check needs.
+    """
+    query = query_builder.price_query(bhk, locality, city)
+    queries_used.append(query)
+    result = await serpapi_client.organic_price_search(query, city)
+    if locality is None or len(evidence.comparables(result.get("organic_results", []), city, bhk)) >= evidence.MIN_PRICE_SAMPLES:
+        return result
+
+    wider_query = query_builder.price_query(bhk, None, city)
+    queries_used.append(wider_query)
+    try:
+        wider = await serpapi_client.organic_price_search(wider_query, city)
+    except Exception as exc:
+        logger.warning("Wider price search failed, using the locality results alone: %s", exc)
+        return result
+    seen_links: set[str] = set()
+    merged = []
+    for item in [*result.get("organic_results", []), *wider.get("organic_results", [])]:
+        if item.get("link") not in seen_links:
+            seen_links.add(item.get("link"))
+            merged.append(item)
+    return {"organic_results": merged}
+
+
 async def run_scan(
     photos: list[tuple[bytes, str]],
     address: str,
@@ -78,20 +128,22 @@ async def run_scan(
     reviewed = await _review(address, city, description)
     # A stated BHK wins; otherwise only one written in the description is used —
     # never guessed.
-    stated_bhk = bhk or input_review.extract_bhk(description or "")
+    stated_bhk = bhk_reader.extract_bhk(bhk or "") or bhk_reader.extract_bhk(description or "")
     locality = reviewed.locality if reviewed else None
-    price_query = query_builder.price_query(stated_bhk, locality, city)
-    logger.info("Searching: price_query=%r reviewer_used=%s", price_query, reviewed is not None)
+    logger.info("Searching: locality=%r bhk=%r reviewer_used=%s", locality, stated_bhk, reviewed is not None)
 
-    # The address check always searches the address exactly as submitted: a
+    # The address check always starts from the address exactly as submitted: a
     # rewritten query could make a made-up address resolve.
+    address_queries: list[str] = []
+    price_queries: list[str] = []
     results = await asyncio.gather(
         *lens_tasks,
-        serpapi_client.resolve_address(address),
-        serpapi_client.organic_price_search(price_query, city),
+        _resolve_address(address, city, address_queries),
+        _search_prices(stated_bhk, locality, city, price_queries),
         return_exceptions=True,
     )
-    lens_results, maps_result, price_result = results[: len(image_urls)], results[-2], results[-1]
+    lens_results, maps_outcome, price_result = results[: len(image_urls)], results[-2], results[-1]
+    maps_result, city_added = maps_outcome if not isinstance(maps_outcome, Exception) else (maps_outcome, False)
     lens_results = _discard_unretrieved(lens_results, saved_paths)
     trace = SearchTrace(
         reviewer_used=reviewed is not None,
@@ -103,14 +155,14 @@ async def run_scan(
             bhk=stated_bhk,
         ),
         queries=[
-            TraceQuery(check="address", query=address),
-            TraceQuery(check="price", query=price_query),
+            *(TraceQuery(check="address", query=query) for query in address_queries),
+            *(TraceQuery(check="price", query=query) for query in price_queries),
         ],
     )
 
     image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city)
-    address_signal = evidence.extract_address_validity(maps_result)
-    price_signal = evidence.extract_price_deviation(price_result, rent, bhk_known=stated_bhk is not None)
+    address_signal = evidence.extract_address_validity(maps_result, city, city_added=city_added)
+    price_signal = evidence.extract_price_deviation(price_result, rent, city=city, bhk=stated_bhk)
 
     risk_score = image_reuse_signal.score + address_signal.score + price_signal.score
     risk_band = scoring.band_for_score(risk_score)
