@@ -220,12 +220,13 @@ def _extract_monthly_prices(organic_results: list[dict]) -> list[int]:
     return prices
 
 
-def extract_price_deviation(organic_result, submitted_rent: int) -> SignalResult:
+def extract_price_deviation(organic_result, submitted_rent: int, *, bhk_known: bool) -> SignalResult:
+    max_score = scoring.price_deviation_max(bhk_known)
     if isinstance(organic_result, Exception):
         logger.warning("Price comparable search failed: %s", organic_result)
         return SignalResult(
             score=0,
-            max=scoring.PRICE_DEVIATION_MAX,
+            max=max_score,
             status="unavailable",
             finding="Couldn't gather comparable rents — the price search didn't respond.",
         )
@@ -234,13 +235,13 @@ def extract_price_deviation(organic_result, submitted_rent: int) -> SignalResult
     if len(prices) < MIN_PRICE_SAMPLES:
         return SignalResult(
             score=0,
-            max=scoring.PRICE_DEVIATION_MAX,
+            max=max_score,
             status="unavailable",
             finding="Not enough comparable price data found for this locality to judge price deviation.",
         )
 
     median_rent = statistics.median(prices)
-    score = scoring.price_deviation_score(submitted_rent, median_rent)
+    score = scoring.price_deviation_score(submitted_rent, median_rent, max_score)
     deviation_pct = max(0.0, (median_rent - submitted_rent) / median_rent * 100)
     finding = (
         f"Rent is {deviation_pct:.0f}% below the estimated local median "
@@ -248,4 +249,6 @@ def extract_price_deviation(organic_result, submitted_rent: int) -> SignalResult
         if score > 0
         else f"Rent is within a plausible range of the estimated local median (₹{median_rent:,.0f})."
     )
-    return SignalResult(score=score, max=scoring.PRICE_DEVIATION_MAX, finding=finding)
+    if not bhk_known:
+        finding += " No home size was given, so this compares across all sizes and counts for less."
+    return SignalResult(score=score, max=max_score, finding=finding)

@@ -43,8 +43,8 @@ def test_address_lookup_failure_is_unavailable_and_scores_nothing() -> None:
 
 
 def test_price_lookup_failure_and_thin_data_are_both_unavailable() -> None:
-    failed = evidence.extract_price_deviation(httpx.TimeoutException("t"), submitted_rent=9000)
-    thin = evidence.extract_price_deviation({"organic_results": []}, submitted_rent=9000)
+    failed = evidence.extract_price_deviation(httpx.TimeoutException("t"), submitted_rent=9000, bhk_known=True)
+    thin = evidence.extract_price_deviation({"organic_results": []}, submitted_rent=9000, bhk_known=True)
     assert failed.status == thin.status == "unavailable"
     assert failed.score == thin.score == 0
 

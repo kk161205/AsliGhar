@@ -186,3 +186,15 @@ async def test_a_scan_stored_before_traces_existed_still_loads(searches, monkeyp
     assert stored is not None
     assert stored.search_trace is None
     assert stored.override_reason is None
+
+
+async def test_the_price_check_counts_for_less_only_when_no_bhk_is_known(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+
+    with_form_bhk = await _scan(bhk="2BHK")
+    with_description_bhk = await _scan(description="Spacious 3 BHK")
+    without = await _scan()
+
+    assert with_form_bhk.signals.price_deviation.max == 30
+    assert with_description_bhk.signals.price_deviation.max == 30
+    assert without.signals.price_deviation.max == 20

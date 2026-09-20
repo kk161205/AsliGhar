@@ -34,3 +34,11 @@ def test_price_deviation_score_floors_at_max() -> None:
 
 def test_price_deviation_score_zero_median_is_safe() -> None:
     assert scoring.price_deviation_score(submitted_rent=9000, median_rent=0) == 0
+
+
+def test_price_deviation_score_scales_to_a_lower_cap_when_the_home_size_is_unknown() -> None:
+    capped = scoring.price_deviation_score(
+        submitted_rent=1000, median_rent=10000, max_score=scoring.PRICE_DEVIATION_UNKNOWN_BHK_MAX
+    )
+    assert capped == scoring.PRICE_DEVIATION_UNKNOWN_BHK_MAX
+    assert capped < scoring.price_deviation_score(submitted_rent=1000, median_rent=10000)

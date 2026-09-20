@@ -109,7 +109,7 @@ def test_extract_price_deviation_ignores_per_sqft_figures() -> None:
             }
         ]
     }
-    signal = evidence.extract_price_deviation(organic_result, submitted_rent=9000)
+    signal = evidence.extract_price_deviation(organic_result, submitted_rent=9000, bhk_known=True)
     # Only one real (non-sqft) sample below MIN_PRICE_SAMPLES threshold -> no score.
     assert signal.score == 0
     assert "Not enough" in signal.finding
@@ -123,7 +123,7 @@ def test_extract_price_deviation_computes_median_from_snippets() -> None:
             {"title": "Flat C", "snippet": "3 BHK independent house for Rent. 24,000. Rent."},
         ]
     }
-    signal = evidence.extract_price_deviation(organic_result, submitted_rent=9000)
+    signal = evidence.extract_price_deviation(organic_result, submitted_rent=9000, bhk_known=True)
     # median is 24000; 9000 is well below tolerance -> should score above zero.
     assert signal.score > 0
 
@@ -137,11 +137,24 @@ def test_extract_price_deviation_below_min_samples_reports_not_enough_data() -> 
     }
     # Only 2 valid samples — below MIN_PRICE_SAMPLES (3) — should honestly
     # report insufficient data rather than compute a median from too little.
-    signal = evidence.extract_price_deviation(organic_result, submitted_rent=9000)
+    signal = evidence.extract_price_deviation(organic_result, submitted_rent=9000, bhk_known=True)
     assert signal.score == 0
     assert "Not enough" in signal.finding
 
 
 def test_extract_price_deviation_degrades_gracefully_on_failed_call() -> None:
-    signal = evidence.extract_price_deviation(httpx.TimeoutException("timed out"), submitted_rent=9000)
+    signal = evidence.extract_price_deviation(httpx.TimeoutException("timed out"), submitted_rent=9000, bhk_known=True)
     assert signal.score == 0
+
+
+def test_price_deviation_counts_for_less_when_no_bhk_was_given() -> None:
+    organic_result = {"organic_results": [{"title": "", "snippet": f"₹{amount:,}/month"} for amount in (28_000, 30_000, 32_000)]}
+
+    known = evidence.extract_price_deviation(organic_result, submitted_rent=5_000, bhk_known=True)
+    unknown = evidence.extract_price_deviation(organic_result, submitted_rent=5_000, bhk_known=False)
+
+    assert known.max == scoring.PRICE_DEVIATION_MAX and known.score == scoring.PRICE_DEVIATION_MAX
+    assert unknown.max == scoring.PRICE_DEVIATION_UNKNOWN_BHK_MAX
+    assert unknown.score == scoring.PRICE_DEVIATION_UNKNOWN_BHK_MAX
+    assert "all sizes" in unknown.finding
+    assert "all sizes" not in known.finding

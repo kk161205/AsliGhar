@@ -110,7 +110,7 @@ async def run_scan(
 
     image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city)
     address_signal = evidence.extract_address_validity(maps_result)
-    price_signal = evidence.extract_price_deviation(price_result, rent)
+    price_signal = evidence.extract_price_deviation(price_result, rent, bhk_known=stated_bhk is not None)
 
     risk_score = image_reuse_signal.score + address_signal.score + price_signal.score
     risk_band = scoring.band_for_score(risk_score)
