@@ -3,7 +3,7 @@ import httpx
 from app.services import evidence, scoring
 
 # Fixtures below mirror real response shapes captured from live SerpApi calls
-# during Day 1/2 verification (see docs/progress.md), not guesses at the schema.
+# while verifying the integrations, not guesses at the schema.
 
 
 def test_extract_image_reuse_flags_classifieds_price_mismatch() -> None:
@@ -120,11 +120,26 @@ def test_extract_price_deviation_computes_median_from_snippets() -> None:
         "organic_results": [
             {"title": "Flat A", "snippet": "Regular Rent. 27,000/Month."},
             {"title": "Flat B", "snippet": "2 BHK semi furnished flat for Rent. 18,000. Rent."},
+            {"title": "Flat C", "snippet": "3 BHK independent house for Rent. 24,000. Rent."},
         ]
     }
     signal = evidence.extract_price_deviation(organic_result, submitted_rent=9000)
-    # median is 22500; 9000 is well below tolerance -> should score above zero.
+    # median is 24000; 9000 is well below tolerance -> should score above zero.
     assert signal.score > 0
+
+
+def test_extract_price_deviation_below_min_samples_reports_not_enough_data() -> None:
+    organic_result = {
+        "organic_results": [
+            {"title": "Flat A", "snippet": "Regular Rent. 27,000/Month."},
+            {"title": "Flat B", "snippet": "2 BHK semi furnished flat for Rent. 18,000. Rent."},
+        ]
+    }
+    # Only 2 valid samples — below MIN_PRICE_SAMPLES (3) — should honestly
+    # report insufficient data rather than compute a median from too little.
+    signal = evidence.extract_price_deviation(organic_result, submitted_rent=9000)
+    assert signal.score == 0
+    assert "Not enough" in signal.finding
 
 
 def test_extract_price_deviation_degrades_gracefully_on_failed_call() -> None:

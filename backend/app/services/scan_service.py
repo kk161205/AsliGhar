@@ -4,19 +4,22 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+
 from app.core.config import get_settings
 from app.models.db import Scan, async_session
-from app.models.schemas import ImageMatchEvidence, ScanResponse, ScanSignals
+from app.models.schemas import ImageMatchEvidence, ScanResponse, ScanSignals, ScanSummary
 from app.services import evidence, groq_client, image_host, scoring, serpapi_client
 
 logger = logging.getLogger(__name__)
 
 SCAN_ID_LENGTH = 10
+RECENT_SCANS_LIMIT = 20
 
 
 def _price_query(bhk: str | None, city: str) -> str:
     # "price" biases the organic engine toward snippets that actually quote a
-    # rupee figure — confirmed against live data (see docs/progress.md).
+    # rupee figure — confirmed against live data.
     return " ".join(filter(None, [bhk, "rent", city, "price"]))
 
 
@@ -27,6 +30,7 @@ async def run_scan(
     rent: int,
     bhk: str | None,
     description: str | None,
+    user_id: str,
 ) -> ScanResponse:
     image_host.cleanup_expired(get_settings().image_ttl_minutes)
     saved_paths = [image_host.save_upload(content, suffix) for content, suffix in photos]
@@ -54,10 +58,20 @@ async def run_scan(
     )
 
     evidence_payload = [item.model_dump() for item in image_evidence]
+    # ensure_ascii=False: with the default True, non-ASCII characters (₹) get
+    # escaped to the literal 6-character text "₹" in the prompt, which
+    # the model then has to decode back into a glyph itself when writing
+    # prose — unreliably, confirmed live (two of three real summaries
+    # silently wrote £ instead of ₹). Sending the actual character removes
+    # that failure mode entirely.
+    evidence_json = json.dumps(
+        {"signals": signals.model_dump(), "evidence": evidence_payload}, ensure_ascii=False
+    )
     ai_summary = await groq_client.summarize_evidence(
-        evidence_json=json.dumps({"signals": signals.model_dump(), "evidence": evidence_payload}),
+        evidence_json=evidence_json,
         risk_score=risk_score,
         risk_band=risk_band,
+        listing_description=description,
     )
 
     scan_id = uuid.uuid4().hex[:SCAN_ID_LENGTH]
@@ -68,6 +82,7 @@ async def run_scan(
             Scan(
                 id=scan_id,
                 created_at=created_at,
+                user_id=user_id,
                 address=address,
                 city=city,
                 rent=rent,
@@ -80,7 +95,9 @@ async def run_scan(
         )
         await session.commit()
 
-    logger.info("Scan %s completed: score=%s band=%s", scan_id, risk_score, risk_band)
+    logger.info(
+        "Scan %s completed: user=%s score=%s band=%s", scan_id, user_id, risk_score, risk_band
+    )
     return ScanResponse(
         scan_id=scan_id,
         risk_score=risk_score,
@@ -106,6 +123,28 @@ async def get_scan(scan_id: str) -> ScanResponse | None:
         ai_summary=row.ai_summary,
         created_at=row.created_at,
     )
+
+
+async def list_recent_scans(user_id: str, limit: int = RECENT_SCANS_LIMIT) -> list[ScanSummary]:
+    async with async_session() as session:
+        result = await session.execute(
+            select(Scan)
+            .where(Scan.user_id == user_id)
+            .order_by(Scan.created_at.desc())
+            .limit(limit)
+        )
+        rows = result.scalars().all()
+    return [
+        ScanSummary(
+            scan_id=row.id,
+            address=row.address,
+            city=row.city,
+            risk_score=row.risk_score,
+            risk_band=row.risk_band,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
 
 
 def _public_image_url(filename: str) -> str:

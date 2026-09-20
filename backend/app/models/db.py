@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import NullPool
@@ -43,10 +43,32 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String)
+    # Nullable: added 2026-09-20, after users.email/password_hash already had
+    # rows in the live DB (see scripts/migrate_2026_09_20_add_user_profile.py).
+    # Every new signup always sets both — see auth_service.create_user().
+    full_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    city: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class Scan(Base):
     __tablename__ = "scans"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    # Nullable: the two scans already in the live DB predate auth and have no
+    # owner. Every new scan is created through the now-protected POST /scan,
+    # so this is always set going forward — see scan_service.run_scan().
+    user_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("users.id"), nullable=True, index=True
+    )
     # timezone=True: the app always works in timezone-aware UTC datetimes
     # (scan_service.py uses datetime.now(timezone.utc)) — a naive column
     # rejects those with "can't subtract offset-naive and offset-aware
@@ -63,14 +85,6 @@ class Scan(Base):
     signals_json: Mapped[dict] = mapped_column(JSON)
     evidence_json: Mapped[list] = mapped_column(JSON)
     ai_summary: Mapped[str | None] = mapped_column(String, nullable=True)
-
-
-class PhotoHash(Base):
-    __tablename__ = "photo_hashes"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    scan_id: Mapped[str] = mapped_column(String, index=True)
-    perceptual_hash: Mapped[str] = mapped_column(String, index=True)
 
 
 async def init_db() -> None:

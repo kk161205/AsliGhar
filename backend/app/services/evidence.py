@@ -1,10 +1,10 @@
 """Extracts scored evidence out of raw SerpApi responses.
 
-Field shapes here were confirmed against live SerpApi calls during Day 1/2
-verification, not just the documented contract — see docs/progress.md for the
-specific discrepancies (google_maps sometimes returns `place_results`, sometimes
-a `local_results` list; google_local returns agencies/complexes with no price
-data, so price comparables come from the organic `google` engine instead).
+Field shapes here were confirmed against live SerpApi calls, not just the
+documented contract, and differ from it in places: google_maps sometimes
+returns `place_results`, sometimes a `local_results` list; google_local returns
+agencies/complexes with no price data, so price comparables come from the
+organic `google` engine instead.
 """
 
 import logging
@@ -23,8 +23,18 @@ CLASSIFIEDS_DOMAINS = {
     "magicbricks.com",
     "nobroker.in",
     "facebook.com",
+    # Expanded 2026-09-20 — the original 6-domain list was reviewed against real
+    # AI-summary output and found to silently miss reused photos on any of these
+    # equally common Indian rental sites, undercutting the tool's headline signal.
+    "housing.com",
+    "sulekha.com",
+    "commonfloor.com",
+    "proptiger.com",
+    "makaan.com",
+    "nestaway.com",
+    "squareyards.com",
 }
-PRICE_MISMATCH_TOLERANCE_PCT = 10  # API_SPEC.md 2.1: "differing by more than 10%"
+PRICE_MISMATCH_TOLERANCE_PCT = 10  # a listed price is "different" beyond 10% of the submitted rent
 
 MAJOR_INDIAN_CITIES = {
     "mumbai", "delhi", "new delhi", "bengaluru", "bangalore", "hyderabad",
@@ -33,6 +43,16 @@ MAJOR_INDIAN_CITIES = {
     "ludhiana", "agra", "nashik", "faridabad", "meerut", "rajkot", "varanasi",
     "srinagar", "amritsar", "chandigarh", "gurugram", "gurgaon", "noida",
     "kochi", "coimbatore", "visakhapatnam",
+    # Expanded 2026-09-20 — a scam listing's contradicting match is just as
+    # likely to be in a tier-2 city as a metro; this remains a hardcoded set
+    # (not a geocoding lookup) so coverage is inherently partial, but a wider
+    # list catches more real cases for the same cost.
+    "thane", "navi mumbai", "thiruvananthapuram", "guwahati", "bhubaneswar",
+    "dehradun", "raipur", "ranchi", "jodhpur", "madurai", "mysuru", "mysore",
+    "nellore", "vijayawada", "aurangabad", "solapur", "hubli", "mangaluru",
+    "mangalore", "tiruchirappalli", "salem", "warangal", "jamshedpur",
+    "gwalior", "jabalpur", "allahabad", "prayagraj", "howrah", "bareilly",
+    "moradabad",
 }
 
 # Substring match, not exact — Google's place categories are inconsistent
@@ -55,7 +75,11 @@ PER_SQFT_EXCLUSION_PATTERN = re.compile(r"per\s?sq|/\s?sq\s?ft|sqft", re.IGNOREC
 # amounts) rather than real monthly rent figures.
 MIN_MONTHLY_RENT = 2_000
 MAX_MONTHLY_RENT = 500_000
-MIN_PRICE_SAMPLES = 2
+# Raised from 2 to 3 (2026-09-20): a median computed from just 2 noisy,
+# regex-extracted snippet figures is a thin basis for up to 30/100 risk
+# points. Real listings' price_deviation findings have shown 12-16 samples in
+# practice, so 3 is a conservative floor, not a bar that starves the signal.
+MIN_PRICE_SAMPLES = 3
 
 
 def _mentions_other_city(text: str, submitted_city: str) -> str | None:

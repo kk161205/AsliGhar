@@ -38,3 +38,12 @@ class ScanResponse(BaseModel):
     evidence: list[ImageMatchEvidence]
     ai_summary: Optional[str] = None
     created_at: datetime
+
+
+class ScanSummary(BaseModel):
+    scan_id: str
+    address: str
+    city: str
+    risk_score: int = Field(ge=0, le=100)
+    risk_band: RiskBand
+    created_at: datetime

@@ -1,4 +1,4 @@
-import type { ApiErrorBody, ScanResponse } from "./types";
+import type { ApiErrorBody, ScanResponse, ScanSummary, User } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string) {
@@ -45,7 +45,11 @@ export async function createScan(input: CreateScanInput): Promise<ScanResponse> 
   if (input.bhk) formData.append("bhk", input.bhk);
   if (input.description) formData.append("description", input.description);
 
-  const response = await fetch("/api/v1/scan", { method: "POST", body: formData });
+  const response = await fetch("/api/v1/scan", {
+    method: "POST",
+    body: formData,
+    credentials: "include",
+  });
   if (!response.ok) {
     await parseErrorResponse(response);
   }
@@ -58,4 +62,58 @@ export async function getScan(scanId: string): Promise<ScanResponse> {
     await parseErrorResponse(response);
   }
   return (await response.json()) as ScanResponse;
+}
+
+export async function listScans(): Promise<ScanSummary[]> {
+  const response = await fetch("/api/v1/scans", { credentials: "include" });
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+  return (await response.json()) as ScanSummary[];
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+  return (await response.json()) as T;
+}
+
+export interface SignupInput {
+  email: string;
+  password: string;
+  fullName: string;
+  city: string;
+}
+
+export function signup(input: SignupInput): Promise<User> {
+  return postJson<User>("/api/v1/auth/signup", {
+    email: input.email,
+    password: input.password,
+    full_name: input.fullName,
+    city: input.city,
+  });
+}
+
+export function login(email: string, password: string): Promise<User> {
+  return postJson<User>("/api/v1/auth/login", { email, password });
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+}
+
+export async function getCurrentUser(): Promise<User | null> {
+  const response = await fetch("/api/v1/auth/me", { credentials: "include" });
+  if (response.status === 401) return null;
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+  return (await response.json()) as User;
 }

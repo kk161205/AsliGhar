@@ -6,10 +6,10 @@ interface ChecklistStep {
   // Expected completion time, in ms after submit. These are a paced UX
   // approximation, not literal backend telemetry — the API returns one
   // combined JSON response, it doesn't stream per-check progress. The order
-  // and timing are set from real measured latency (see docs/API_SPEC.md
-  // §2.4): address/price resolve in ~4s, google_lens (the photo check) is
-  // the long pole at ~9-12s. If the real response is slower than this
-  // schedule, the last step keeps animating rather than falsely completing.
+  // and timing are set from real measured latency: address/price resolve in
+  // ~4s, google_lens (the photo check) is the long pole at ~9-12s. If the
+  // real response is slower than this schedule, the last step keeps
+  // animating rather than falsely completing.
   etaMs: number;
 }
 

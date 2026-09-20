@@ -13,6 +13,7 @@ venv/
 .venv/
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
 
 # Node
 node_modules/

@@ -4,10 +4,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi.errors import RateLimitExceeded
 
+from app.api.auth import router as auth_router
 from app.api.scan import router as scan_router
 from app.core.health import check_dependencies
 from app.core.logging import configure_logging
+from app.core.rate_limit import limiter, log_rate_limit_exceeded
 from app.models.db import init_db
 from app.services.image_host import STATIC_DIR
 
@@ -32,14 +35,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AsliGhar API", lifespan=lifespan)
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, log_rate_limit_exceeded)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
+    allow_credentials=True,  # required for the session cookie to work cross-origin
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(scan_router)
+app.include_router(auth_router)
 app.mount("/static/scans", StaticFiles(directory=STATIC_DIR), name="scans")
 
 

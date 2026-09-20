@@ -34,6 +34,23 @@ export interface ScanResponse {
   created_at: string;
 }
 
+export interface ScanSummary {
+  scan_id: string;
+  address: string;
+  city: string;
+  risk_score: number;
+  risk_band: RiskBand;
+  created_at: string;
+}
+
 export interface ApiErrorBody {
   detail: string | { type: string; loc: (string | number)[]; msg: string }[];
+}
+
+export interface User {
+  id: string;
+  email: string;
+  full_name: string | null;
+  city: string | null;
+  created_at: string;
 }

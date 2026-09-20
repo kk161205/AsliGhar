@@ -95,5 +95,5 @@ async def local_price_comparables(query: str, city: str) -> dict:
 async def organic_price_search(query: str, city: str) -> dict:
     """Primary source for price comparables, not a fallback: google_local returns
     agencies/complexes with no price data at all (confirmed against live data),
-    so real ₹ figures come from organic snippets instead — see API_SPEC.md §2.3."""
+    so real ₹ figures come from organic snippets instead."""
     return await _get("google", {"q": query, "location": f"{city}, India"})

@@ -1,3 +1,4 @@
+import { Plus, X } from "lucide-react";
 import { useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import type { CreateScanInput } from "../api/client";
 
@@ -11,6 +12,7 @@ const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png"]);
 
 interface UploadFormProps {
   onSubmit: (input: CreateScanInput) => void;
+  defaultCity?: string;
 }
 
 function validatePhotos(photos: File[]): string | null {
@@ -28,10 +30,10 @@ function validatePhotos(photos: File[]): string | null {
   return null;
 }
 
-export default function UploadForm({ onSubmit }: UploadFormProps) {
+export default function UploadForm({ onSubmit, defaultCity }: UploadFormProps) {
   const [photos, setPhotos] = useState<File[]>([]);
   const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
+  const [city, setCity] = useState(defaultCity ?? "");
   const [rent, setRent] = useState("");
   const [bhk, setBhk] = useState("");
   const [description, setDescription] = useState("");
@@ -91,7 +93,9 @@ export default function UploadForm({ onSubmit }: UploadFormProps) {
   return (
     <form className="upload-form" onSubmit={handleSubmit}>
       <div
-        className={`upload-form__dropzone${isDragging ? " is-dragging" : ""}`}
+        className={`upload-form__dropzone${isDragging ? " is-dragging" : ""}${
+          photos.length > 0 ? " has-photos" : ""
+        }`}
         onDragOver={(event) => {
           event.preventDefault();
           setIsDragging(true);
@@ -99,10 +103,48 @@ export default function UploadForm({ onSubmit }: UploadFormProps) {
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
       >
-        <p>Drag photos here, or</p>
-        <button type="button" onClick={() => fileInputRef.current?.click()}>
-          Choose files
-        </button>
+        {photos.length === 0 ? (
+          <>
+            <p>Drag photos here, or</p>
+            <button type="button" onClick={() => fileInputRef.current?.click()}>
+              Choose files
+            </button>
+            <p className="upload-form__hint">1–5 photos, JPEG or PNG, up to 5MB each</p>
+          </>
+        ) : (
+          <>
+            <ul className="upload-form__thumbnails">
+              {photos.map((photo, index) => (
+                <li key={`${photo.name}-${photo.lastModified}`}>
+                  <img src={URL.createObjectURL(photo)} alt={`Listing photo ${index + 1}`} />
+                  <button
+                    type="button"
+                    className="upload-form__thumb-remove"
+                    onClick={() => removePhoto(index)}
+                    aria-label={`Remove photo ${index + 1}`}
+                  >
+                    <X size={14} strokeWidth={2.5} />
+                  </button>
+                </li>
+              ))}
+              {photos.length < MAX_PHOTOS && (
+                <li>
+                  <button
+                    type="button"
+                    className="upload-form__add-more"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Plus size={20} strokeWidth={1.75} />
+                    <span>Add</span>
+                  </button>
+                </li>
+              )}
+            </ul>
+            <p className="upload-form__hint">
+              {photos.length} of {MAX_PHOTOS} photos added, JPEG or PNG, up to 5MB each
+            </p>
+          </>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -112,24 +154,12 @@ export default function UploadForm({ onSubmit }: UploadFormProps) {
           hidden
           aria-label="Upload listing photos"
         />
-        <p className="upload-form__hint">1–5 photos, JPEG or PNG, up to 5MB each</p>
       </div>
 
-      {photos.length > 0 && (
-        <ul className="upload-form__thumbnails">
-          {photos.map((photo, index) => (
-            <li key={`${photo.name}-${photo.lastModified}`}>
-              <img src={URL.createObjectURL(photo)} alt={`Listing photo ${index + 1}`} />
-              <button type="button" onClick={() => removePhoto(index)} aria-label={`Remove photo ${index + 1}`}>
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
       <label className="upload-form__field">
-        Address
+        <span className="upload-form__label-row">
+          <span className="upload-form__label-text">Address</span>
+        </span>
         <input
           type="text"
           value={address}
@@ -141,7 +171,9 @@ export default function UploadForm({ onSubmit }: UploadFormProps) {
 
       <div className="upload-form__row">
         <label className="upload-form__field">
-          City
+          <span className="upload-form__label-row">
+            <span className="upload-form__label-text">City</span>
+          </span>
           <input
             type="text"
             value={city}
@@ -151,7 +183,9 @@ export default function UploadForm({ onSubmit }: UploadFormProps) {
           />
         </label>
         <label className="upload-form__field">
-          Monthly rent
+          <span className="upload-form__label-row">
+            <span className="upload-form__label-text">Monthly rent</span>
+          </span>
           <div className="upload-form__rent">
             <span aria-hidden="true">₹</span>
             <input
@@ -165,7 +199,10 @@ export default function UploadForm({ onSubmit }: UploadFormProps) {
           </div>
         </label>
         <label className="upload-form__field">
-          BHK <span className="upload-form__optional">(optional)</span>
+          <span className="upload-form__label-row">
+            <span className="upload-form__label-text">BHK</span>
+            <span className="upload-form__optional">Optional</span>
+          </span>
           <input
             type="text"
             value={bhk}
@@ -176,7 +213,10 @@ export default function UploadForm({ onSubmit }: UploadFormProps) {
       </div>
 
       <label className="upload-form__field">
-        Description <span className="upload-form__optional">(optional)</span>
+        <span className="upload-form__label-row">
+          <span className="upload-form__label-text">Description</span>
+          <span className="upload-form__optional">Optional</span>
+        </span>
         <textarea
           value={description}
           onChange={(event) => setDescription(event.target.value)}
@@ -191,7 +231,7 @@ export default function UploadForm({ onSubmit }: UploadFormProps) {
         </p>
       )}
 
-      <button type="submit" className="upload-form__submit">
+      <button type="submit" className="button-primary upload-form__submit">
         Check this listing
       </button>
     </form>

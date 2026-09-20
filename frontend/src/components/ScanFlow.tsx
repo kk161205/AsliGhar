@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, createScan, type CreateScanInput } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import ScanningState from "./ScanningState";
 import UploadForm from "./UploadForm";
 
@@ -12,6 +13,9 @@ type FlowState = { status: "form" } | { status: "scanning"; photoCount: number; 
 export default function ScanFlow() {
   const [state, setState] = useState<FlowState>({ status: "form" });
   const navigate = useNavigate();
+  const { state: authState } = useAuth();
+  const defaultCity =
+    authState.status === "authenticated" ? authState.user.city ?? undefined : undefined;
 
   async function handleSubmit(input: CreateScanInput) {
     setState({ status: "scanning", photoCount: input.photos.length, done: false });
@@ -36,7 +40,7 @@ export default function ScanFlow() {
           {state.message}
         </p>
       )}
-      <UploadForm onSubmit={handleSubmit} />
+      <UploadForm onSubmit={handleSubmit} defaultCity={defaultCity} />
     </div>
   );
 }
