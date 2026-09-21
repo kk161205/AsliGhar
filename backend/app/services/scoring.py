@@ -2,6 +2,9 @@ IMAGE_REUSE_MAX = 40
 # One photo provably lifted from a contradicting listing is enough on its own
 # to reach the Moderate band; a second photo pushes it towards the cap.
 IMAGE_REUSE_PER_PHOTO = 25
+# The same photo on a page that only *looks* like a listing (a site whose
+# listing URLs haven't been confirmed) counts for less.
+IMAGE_REUSE_INDICATOR_PER_PHOTO = 10
 
 PRICE_DEVIATION_MAX = 30
 # Without a home size the comparison mixes 1BHKs with 4BHKs, so the price check
@@ -31,8 +34,9 @@ def band_for_score(score: int) -> str:
     return "Severe"
 
 
-def image_reuse_score(contradicted_photo_count: int) -> int:
-    return min(contradicted_photo_count * IMAGE_REUSE_PER_PHOTO, IMAGE_REUSE_MAX)
+def image_reuse_score(proven_photo_count: int, indicator_photo_count: int = 0) -> int:
+    total = proven_photo_count * IMAGE_REUSE_PER_PHOTO + indicator_photo_count * IMAGE_REUSE_INDICATOR_PER_PHOTO
+    return min(total, IMAGE_REUSE_MAX)
 
 
 def price_deviation_max(bhk_known: bool) -> int:

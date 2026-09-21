@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
@@ -6,7 +7,7 @@ from app.core.auth_deps import get_current_user
 from app.core.rate_limit import limiter
 from app.models.db import User
 from app.models.schemas import PrecheckRequest, ScanResponse, ScanSummary
-from app.services import input_gate, scan_service
+from app.services import input_gate, insights, scan_service
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/api/v1", tags=["scan"])
 MIN_PHOTOS = 1
 MAX_PHOTOS = 5
 MAX_PHOTO_BYTES = 5 * 1024 * 1024
+MAX_LISTING_URL_CHARS = 500
 ALLOWED_PHOTO_CONTENT_TYPES = {"image/jpeg": ".jpg", "image/png": ".png"}
 
 
@@ -49,6 +51,26 @@ async def _read_and_validate_photos(photos: list[UploadFile]) -> list[tuple[byte
 async def precheck_scan(body: PrecheckRequest) -> input_gate.GateResult:
     """Free, instant check of the inputs, so a typo is caught before a scan is paid for."""
     return input_gate.evaluate(body.rent)
+
+
+def _clean_listing_url(url: str | None) -> str | None:
+    """The pasted listing link, if it is an http(s) URL. It is only ever used as a search query."""
+    url = (url or "").strip()
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if len(url) > MAX_LISTING_URL_CHARS or parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=422, detail="Enter the listing link as a full web address (https://…).")
+    return url
+
+
+def _clean_phone(phone: str | None) -> str | None:
+    if not (phone or "").strip():
+        return None
+    normalized = insights.normalize_phone(phone)
+    if normalized is None:
+        raise HTTPException(status_code=422, detail="Enter a 10-digit Indian mobile number.")
+    return normalized
 
 
 def _override_reason_for(rent: int, override_reason: str | None) -> str | None:
@@ -88,10 +110,14 @@ async def create_scan(
     bhk: str | None = Form(None),
     description: str | None = Form(None),
     override_reason: str | None = Form(None, max_length=input_gate.MAX_OVERRIDE_REASON_CHARS),
+    listing_url: str | None = Form(None),
+    phone: str | None = Form(None),
     current_user: User = Depends(get_current_user),
 ) -> ScanResponse:
     # Before any photo is read or search paid for.
     reason = _override_reason_for(rent, override_reason)
+    link = _clean_listing_url(listing_url)
+    contact = _clean_phone(phone)
     validated_photos = await _read_and_validate_photos(photos)
     return await scan_service.run_scan(
         photos=validated_photos,
@@ -102,6 +128,8 @@ async def create_scan(
         description=description,
         user_id=current_user.id,
         override_reason=reason,
+        listing_url=link,
+        phone=contact,
     )
 
 

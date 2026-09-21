@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.models.db import Scan, async_session
 from app.models.schemas import (
     ImageMatchEvidence,
+    Insight,
     ScanResponse,
     ScanSignals,
     ScanSummary,
@@ -18,11 +19,14 @@ from app.models.schemas import (
     UnderstoodInput,
 )
 from app.services import (
+    bhk as bhk_reader,
+    comparable_store,
     evidence,
     groq_client,
     image_host,
-    bhk as bhk_reader,
     input_review,
+    insights,
+    listing_text,
     query_builder,
     scoring,
     serpapi_client,
@@ -128,6 +132,36 @@ async def _search_prices(
     return {"organic_results": merged}
 
 
+def _context_insights(
+    *,
+    description: str | None,
+    listing_url: str | None,
+    link_result,
+    phone: str | None,
+    phone_result,
+    maps_place: dict | None,
+    stated_pincode: str | None,
+    rent: int,
+    city: str,
+) -> list[Insight]:
+    """Unscored context: description red flags, what a pasted link says, where a phone number appears."""
+    found = listing_text.red_flags(description)
+    if listing_url:
+        page = None
+        if isinstance(link_result, Exception):
+            logger.warning("Listing link lookup failed: %s", link_result)
+        else:
+            page = evidence.page_details(link_result.get("organic_results", []), listing_url)
+        found += insights.listing_link_insights(listing_url, page, rent, city)
+    if phone:
+        if isinstance(phone_result, Exception):
+            logger.warning("Phone number search failed: %s", phone_result)
+        else:
+            found += insights.phone_insights(phone_result.get("organic_results", []), phone, city)
+    found += insights.pincode_insight(maps_place, stated_pincode)
+    return found
+
+
 async def run_scan(
     photos: list[tuple[bytes, str]],
     address: str,
@@ -137,6 +171,8 @@ async def run_scan(
     description: str | None,
     user_id: str,
     override_reason: str | None = None,
+    listing_url: str | None = None,
+    phone: str | None = None,
 ) -> ScanResponse:
     image_host.cleanup_expired(get_settings().image_ttl_minutes)
     saved_paths = [image_host.save_upload(content, suffix) for content, suffix in photos]
@@ -145,6 +181,9 @@ async def run_scan(
     # Photo searches are slow and need nothing from the reviewer, so they start
     # first and run while the address is being read.
     lens_tasks = [asyncio.ensure_future(serpapi_client.reverse_image_search(url)) for url in image_urls]
+    # Optional inputs need nothing from the reviewer either.
+    link_task = asyncio.ensure_future(serpapi_client.search_page(listing_url)) if listing_url else None
+    phone_task = asyncio.ensure_future(serpapi_client.search_phone(phone)) if phone else None
 
     reviewed = await _review(address, city, description)
     # A stated BHK wins; otherwise only one written in the description is used —
@@ -157,13 +196,15 @@ async def run_scan(
     # rewritten query could make a made-up address resolve.
     address_queries: list[str] = []
     price_queries: list[str] = []
-    results = await asyncio.gather(
-        *lens_tasks,
-        _resolve_address(address, city, address_queries),
-        _search_prices(stated_bhk, locality, city, price_queries),
+    maps_task = asyncio.ensure_future(_resolve_address(address, city, address_queries))
+    price_task = asyncio.ensure_future(_search_prices(stated_bhk, locality, city, price_queries))
+    stored_task = asyncio.ensure_future(comparable_store.load(city, stated_bhk))
+    lens_results = await asyncio.gather(*lens_tasks, return_exceptions=True)
+    # sleep(0) stands in for an optional lookup that wasn't requested.
+    maps_outcome, price_result, stored, link_result, phone_result = await asyncio.gather(
+        maps_task, price_task, stored_task, link_task or asyncio.sleep(0), phone_task or asyncio.sleep(0),
         return_exceptions=True,
     )
-    lens_results, maps_outcome, price_result = results[: len(image_urls)], results[-2], results[-1]
     maps_result, city_added = maps_outcome if not isinstance(maps_outcome, Exception) else (maps_outcome, False)
     lens_results = _discard_unretrieved(lens_results, saved_paths)
     trace = SearchTrace(
@@ -186,7 +227,24 @@ async def run_scan(
         pages = await _look_up_pages(image_evidence)
         image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city, pages)
     address_signal = evidence.extract_address_validity(maps_result, city, city_added=city_added)
-    price_signal = evidence.extract_price_deviation(price_result, rent, city=city, bhk=stated_bhk)
+    price_signal = evidence.extract_price_deviation(
+        price_result, rent, city=city, bhk=stated_bhk, stored=[] if isinstance(stored, Exception) else stored
+    )
+    if not isinstance(price_result, Exception):
+        await comparable_store.save(
+            city, stated_bhk, evidence.comparables(price_result.get("organic_results", []), city, stated_bhk)
+        )
+    context_insights = _context_insights(
+        description=description,
+        listing_url=listing_url,
+        link_result=link_result,
+        phone=phone,
+        phone_result=phone_result,
+        maps_place=evidence.resolved_place(maps_result, city),
+        stated_pincode=reviewed.pincode if reviewed else None,
+        rent=rent,
+        city=city,
+    )
 
     risk_score = image_reuse_signal.score + address_signal.score + price_signal.score
     risk_band = scoring.band_for_score(risk_score)
@@ -208,6 +266,7 @@ async def run_scan(
             "submitted_listing": {"monthly_rent": rent, "city": city, "home_size": stated_bhk},
             "signals": signals.model_dump(),
             "evidence": evidence_payload,
+            "insights": [{"tier": item.tier, "title": item.title, "detail": item.detail} for item in context_insights],
         },
         ensure_ascii=False,
     )
@@ -237,6 +296,7 @@ async def run_scan(
                 ai_summary=ai_summary,
                 override_reason=override_reason,
                 trace_json=trace.model_dump(),
+                insights_json=[item.model_dump() for item in context_insights],
             )
         )
         await session.commit()
@@ -254,6 +314,7 @@ async def run_scan(
         created_at=created_at,
         override_reason=override_reason,
         search_trace=trace,
+        insights=context_insights,
     )
 
 
@@ -272,6 +333,7 @@ async def get_scan(scan_id: str) -> ScanResponse | None:
         created_at=row.created_at,
         override_reason=row.override_reason,
         search_trace=SearchTrace.model_validate(row.trace_json) if row.trace_json else None,
+        insights=[Insight.model_validate(item) for item in row.insights_json or []],
     )
 
 

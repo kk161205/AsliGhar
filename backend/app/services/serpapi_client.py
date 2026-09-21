@@ -116,3 +116,10 @@ async def search_page(url: str) -> dict:
     listing carries its title, size and price (confirmed live for OLX).
     """
     return await _get("google", {"q": url}, cache_ttl_seconds=get_settings().price_cache_ttl_seconds)
+
+
+async def search_phone(phone: str) -> dict:
+    """Pages that carry this exact number (an exact-phrase search)."""
+    return await _get(
+        "google", {"q": f'"{phone}"', "gl": "in"}, cache_ttl_seconds=get_settings().price_cache_ttl_seconds
+    )

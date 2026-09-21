@@ -16,10 +16,11 @@ it was computed from.
 import logging
 import re
 import statistics
+from collections.abc import Sequence
 from typing import Literal, NamedTuple
 from urllib.parse import urlparse
 
-from app.models.schemas import ImageMatchEvidence, SignalResult, SignalSource
+from app.models.schemas import ImageMatchEvidence, SignalResult, SignalSource, Tier
 from app.services import bhk as bhk_reader
 from app.services import cities, scoring
 from app.services.money import inr
@@ -89,6 +90,7 @@ MAX_PAGE_SNIPPET_CHARS = 200
 class PageDetails(NamedTuple):
     price: int | None
     snippet: str | None
+    title: str = ""
 
 
 def _page_key(link: str) -> str:
@@ -115,6 +117,7 @@ def page_details(organic_results: list[dict], link: str) -> PageDetails | None:
         return PageDetails(
             price=next(iter(figures)) if len(figures) == 1 else None,
             snippet=snippet[:MAX_PAGE_SNIPPET_CHARS] or None,
+            title=item.get("title", ""),
         )
     return None
 
@@ -132,7 +135,54 @@ def _listing_site(link: str) -> str | None:
     return None
 
 
-def _page_text(title: str, link: str) -> str:
+_PROPERTY_WORDS = re.compile(
+    r"\b(bhk|flat|house|villa|apartment|bungalow|studio|room|pg|kothi|floor|independent|penthouse|duplex)\b"
+)
+_LISTING_INTENT = re.compile(r"\b(sale|resale|buy|rent|rental|lease|to let)\b")
+# Titles/URLs of search and category pages rather than one listing: a leading
+# count ("330 Flats..."), "Page 2", a plural property noun followed by "in"/"near"/
+# "for", or search parameters in the URL.
+_AGGREGATE_TITLE = re.compile(
+    r"^\s*\d[\d,+]*\s|\bpage \d+\b|\b(?:properties|flats|houses|apartments|villas|rooms|homes|bungalows)\b.*\b(?:in|near|for)\b",
+    re.IGNORECASE,
+)
+# A run of 6+ digits not glued to a letter (so a geo code like "_g4059117" isn't
+# one), or a long hex id.
+_LISTING_ID = re.compile(r"(?<![A-Za-z])\d{6,}|[0-9a-f]{16,}", re.IGNORECASE)
+_AGGREGATE_QUERY = re.compile(r"filter=|searchparam|[?&]q=|/search", re.IGNORECASE)
+
+
+def looks_like_listing_page(title: str, link: str) -> bool:
+    """Whether a page's own title/URL reads like ONE property listing.
+
+    Used for sites whose listing URL shapes haven't been observed, so a match
+    here is an indicator, not proof.
+    """
+    parsed = urlparse(link)
+    location = f"{parsed.path}?{parsed.query}"
+    # One listing has its own ID in the URL; category pages on the same sites
+    # ("...-for-rent-in-khar-mumbai-pppfr") don't. Confirmed against real
+    # Magicbricks and 99acres results.
+    if not _LISTING_ID.search(location) or _AGGREGATE_QUERY.search(location):
+        return False
+    if _AGGREGATE_TITLE.search(title):
+        return False
+    words = re.sub(r"[^a-z0-9]+", " ", page_text(title, link).lower())
+    return bool(_PROPERTY_WORDS.search(words) and _LISTING_INTENT.search(words))
+
+
+def _classify_page(title: str, link: str) -> tuple[str, Tier] | None:
+    """(site, tier) if the page is a listing: proven for sites whose listing URLs are known."""
+    known = _listing_site(link)
+    if known:
+        return known, "proven"
+    if looks_like_listing_page(title, link):
+        host = (urlparse(link).hostname or "").lower().removeprefix("www.")
+        return host, "indicator"
+    return None
+
+
+def page_text(title: str, link: str) -> str:
     return f"{title} {urlparse(link).path}"
 
 
@@ -141,14 +191,14 @@ def listing_type(title: str, link: str) -> ListingType | None:
 
     None when it says neither, or both.
     """
-    words = re.sub(r"[^a-z0-9]+", " ", _page_text(title, link).lower())
+    words = re.sub(r"[^a-z0-9]+", " ", page_text(title, link).lower())
     is_sale, is_rent = bool(_SALE_WORDS.search(words)), bool(_RENT_WORDS.search(words))
     if is_sale == is_rent:
         return None
     return "sale" if is_sale else "rent"
 
 
-def _other_city(text: str, submitted_city: str) -> str | None:
+def other_city(text: str, submitted_city: str) -> str | None:
     """A city the text names that isn't the submitted one, or None.
 
     Text that also names the submitted city, or a spelling variant of it
@@ -178,10 +228,10 @@ def _contradictions(
         and abs(listed_price - submitted_price) / submitted_price * 100 > PRICE_MISMATCH_TOLERANCE_PCT
     ):
         reasons.append(f"It shows {inr(listed_price)} a month, but you submitted {inr(submitted_price)}.")
-    other_city = _other_city(_page_text(title, link), submitted_city)
-    if other_city:
-        reasons.append(f"Its title or address places it in {other_city}, but you submitted {submitted_city}.")
-    return reasons, listed_price, other_city, kind
+    listed_city = other_city(page_text(title, link), submitted_city)
+    if listed_city:
+        reasons.append(f"Its title or address places it in {listed_city}, but you submitted {submitted_city}.")
+    return reasons, listed_price, listed_city, kind
 
 
 def extract_image_reuse(
@@ -218,10 +268,13 @@ def extract_image_reuse(
         listing_pages = 0
         for match in exact_matches:
             link = match.get("link", "")
-            domain = _listing_site(link)
+            classified = _classify_page(match.get("title", ""), link)
+            if classified is None:
+                continue
+            domain, tier = classified
             # The same listing is served under several URLs (language prefixes).
-            listing_key = (domain or "", match.get("title", "").strip().lower())
-            if domain is None or listing_key in seen_listings:
+            listing_key = (domain, match.get("title", "").strip().lower())
+            if listing_key in seen_listings:
                 continue
             seen_listings.add(listing_key)
             listing_pages += 1
@@ -243,6 +296,7 @@ def extract_image_reuse(
                     reasons=reasons,
                     listing_type=kind,
                     source_snippet=page.snippet if page else None,
+                    tier=tier,
                 )
             )
         logger.info(
@@ -255,7 +309,9 @@ def extract_image_reuse(
     checked = len(lens_results) - failed_photos
     photos_with_matches = len({item.photo_index for item in contradicting})
     # Per photo, not per page: the same stolen photo on five pages is one photo.
-    score = scoring.image_reuse_score(photos_with_matches)
+    proven_photos = {item.photo_index for item in contradicting if item.tier == "proven"}
+    indicator_only_photos = {item.photo_index for item in contradicting} - proven_photos
+    score = scoring.image_reuse_score(len(proven_photos), len(indicator_only_photos))
     finding = (
         f"{photos_with_matches} of {checked} photos appear on other property listings "
         "that contradict this one."
@@ -266,7 +322,15 @@ def extract_image_reuse(
         finding += f" {consistent} other property listing(s) show the same photo without contradicting it."
     if failed_photos:
         finding += f" {failed_photos} photo(s) couldn't be checked."
-    return SignalResult(score=score, max=scoring.IMAGE_REUSE_MAX, finding=finding), contradicting
+    return (
+        SignalResult(
+            score=score,
+            max=scoring.IMAGE_REUSE_MAX,
+            finding=finding,
+            basis="proven" if proven_photos else "indicator",
+        ),
+        contradicting,
+    )
 
 
 def _place_candidate(maps_result: dict) -> dict | None:
@@ -297,7 +361,7 @@ def resolved_place(maps_result, submitted_city: str) -> dict | None:
     return place
 
 
-def _maps_link(place: dict) -> str | None:
+def maps_link(place: dict) -> str | None:
     place_id = place.get("place_id")
     return f"https://www.google.com/maps/place/?q=place_id:{place_id}" if place_id else None
 
@@ -326,17 +390,17 @@ def extract_address_validity(maps_result, submitted_city: str, *, city_added: bo
     full_address = place.get("address") or ""
     source = SignalSource(
         title=title,
-        url=_maps_link(place),
+        url=maps_link(place),
         detail=f"Google Maps: {full_address}" if full_address else "Google Maps result",
     )
     found_with_city = " Found by adding your city to the search." if city_added else ""
 
-    other_city = _other_city(full_address, submitted_city)
-    if other_city:
+    resolved_city = other_city(full_address, submitted_city)
+    if resolved_city:
         return SignalResult(
             score=scoring.ADDRESS_WRONG_CITY_SCORE,
             max=scoring.ADDRESS_VALIDITY_MAX,
-            finding=f'Address resolves to "{title}" in {other_city}, not {submitted_city}.{found_with_city}',
+            finding=f'Address resolves to "{title}" in {resolved_city}, not {submitted_city}.{found_with_city}',
             sources=[source],
         )
 
@@ -402,6 +466,7 @@ class Comparable(NamedTuple):
     title: str
     link: str
     snippet: str
+    earlier: bool = False  # kept from a previous scan rather than found just now
 
 
 def comparables(organic_results: list[dict], city: str, bhk: str | None) -> list[Comparable]:
@@ -433,27 +498,39 @@ def _sources(comparables: list[Comparable]) -> list[SignalSource]:
         SignalSource(
             title=item.title,
             url=item.link or None,
-            detail=f"{inr(item.rent)} a month — “{(item.snippet or item.title)[:MAX_SNIPPET_CHARS]}”",
+            detail=(
+                f"{inr(item.rent)} a month — “{(item.snippet or item.title)[:MAX_SNIPPET_CHARS]}”"
+                f"{' (from an earlier search)' if item.earlier else ''}"
+            ),
         )
         for item in comparables
     ]
 
 
 def extract_price_deviation(
-    organic_result, submitted_rent: int, *, city: str, bhk: str | None
+    organic_result,
+    submitted_rent: int,
+    *,
+    city: str,
+    bhk: str | None,
+    stored: Sequence[Comparable] = (),
 ) -> SignalResult:
+    """`stored`: comparables kept from earlier scans of the same area, used alongside today's search."""
     max_score = scoring.price_deviation_max(bhk_known=bhk is not None)
-    if isinstance(organic_result, Exception):
+    search_failed = isinstance(organic_result, Exception)
+    if search_failed:
         logger.warning("Price comparable search failed: %s", organic_result)
-        return SignalResult(
-            score=0,
-            max=max_score,
-            status="unavailable",
-            finding="Couldn't gather comparable rents — the price search didn't respond.",
-        )
-
-    found = comparables(organic_result.get("organic_results", []), city, bhk)
+    fresh = [] if search_failed else comparables(organic_result.get("organic_results", []), city, bhk)
+    fresh_links = {item.link for item in fresh}
+    found = [*fresh, *(item for item in stored if item.link not in fresh_links)]
     if len(found) < MIN_PRICE_SAMPLES:
+        if search_failed:
+            return SignalResult(
+                score=0,
+                max=max_score,
+                status="unavailable",
+                finding="Couldn't gather comparable rents — the price search didn't respond.",
+            )
         home = f"a {bhk}" if bhk else "a home"
         return SignalResult(
             score=0,

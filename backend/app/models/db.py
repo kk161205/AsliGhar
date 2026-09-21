@@ -89,6 +89,22 @@ class Scan(Base):
     # (see scripts/migrate_2026_09_21_add_scan_trace.py).
     override_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     trace_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    insights_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+class RentComparable(Base):
+    """A page that quoted a rent, kept so later scans of the same area have more to compare."""
+
+    __tablename__ = "rent_comparables"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    city: Mapped[str] = mapped_column(String, index=True)
+    bhk: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    rent: Mapped[int] = mapped_column(Integer)
+    url: Mapped[str] = mapped_column(String, unique=True)
+    title: Mapped[str] = mapped_column(String)
+    snippet: Mapped[str] = mapped_column(String)
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 async def init_db() -> None:

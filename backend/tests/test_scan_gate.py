@@ -111,3 +111,38 @@ def test_precheck_reports_the_gate_decision(client, rent: int, status: str) -> N
 def test_precheck_requires_login() -> None:
     with TestClient(app) as anonymous:
         assert anonymous.post("/api/v1/scan/precheck", json={"rent": 25_000}).status_code == 401
+
+
+# --- optional inputs -----------------------------------------------------------------------
+
+
+def test_a_valid_phone_and_link_reach_the_scan_in_normalized_form(client, scan_calls) -> None:
+    response = _scan(client, 25_000, phone="+91 98765 43210", listing_url="https://www.olx.in/item/x-iid-1")
+
+    assert response.status_code == 200
+    assert scan_calls[0]["phone"] == "9876543210"
+    assert scan_calls[0]["listing_url"] == "https://www.olx.in/item/x-iid-1"
+
+
+def test_the_optional_inputs_can_be_left_out_or_blank(client, scan_calls) -> None:
+    assert _scan(client, 25_000).status_code == 200
+    assert _scan(client, 25_000, phone="  ", listing_url="").status_code == 200
+    assert scan_calls[0]["phone"] is None and scan_calls[0]["listing_url"] is None
+
+
+@pytest.mark.parametrize("phone", ["12345", "0000000000", "98765abcde", "1234567890"])
+def test_an_invalid_phone_is_refused_before_any_work(client, scan_calls, phone: str) -> None:
+    response = _scan(client, 25_000, phone=phone)
+    assert response.status_code == 422
+    assert "10-digit" in response.json()["detail"]
+    assert scan_calls == []
+
+
+@pytest.mark.parametrize(
+    "url", ["not a link", "ftp://example.com/x", "javascript:alert(1)", "https://", "https://x.com/" + "a" * 600]
+)
+def test_an_invalid_listing_link_is_refused_before_any_work(client, scan_calls, url: str) -> None:
+    response = _scan(client, 25_000, listing_url=url)
+    assert response.status_code == 422
+    assert "web address" in response.json()["detail"]
+    assert scan_calls == []

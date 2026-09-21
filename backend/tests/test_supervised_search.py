@@ -4,7 +4,7 @@ import pytest
 
 from app.core.config import get_settings
 from app.models.db import Scan, User, async_session
-from app.services import groq_client, image_host, input_review, scan_service, serpapi_client
+from app.services import comparable_store, groq_client, image_host, input_review, scan_service, serpapi_client
 from app.services.input_review import NormalizedInput
 
 ADDRESS = "flat 302 sri sai residency near forum mall koramangala 5th blk"
@@ -20,6 +20,11 @@ class _Recorder:
         self.price_results = None
         self.lens_result: dict = {"exact_matches": []}
         self.page_lookups: list[str] = []
+        self.page_result: dict | None = None
+        self.phone_lookups: list[str] = []
+        self.phone_result: dict = {"organic_results": []}
+        self.stored: list = []
+        self.saved: list = []
 
 
 @pytest.fixture
@@ -51,12 +56,27 @@ def searches(monkeypatch, tmp_path) -> _Recorder:
     async def summary(**_kwargs) -> str:
         return "summary"
 
-    monkeypatch.setattr(image_host, "STATIC_DIR", tmp_path)
-    monkeypatch.setattr(image_host, "was_fetched", lambda _name: True)
     async def search_page(url: str) -> dict:
         recorder.page_lookups.append(url)
+        if recorder.page_result is not None:
+            return recorder.page_result
         return {"organic_results": [{"link": url, "title": "House", "snippet": "House for sale. ₹ 31,99,000."}]}
 
+    async def search_phone(phone: str) -> dict:
+        recorder.phone_lookups.append(phone)
+        return recorder.phone_result
+
+    async def load_stored(city: str, bhk: str | None) -> list:
+        return recorder.stored
+
+    async def save_stored(city: str, bhk: str | None, found: list) -> None:
+        recorder.saved.append((city, bhk, found))
+
+    monkeypatch.setattr(image_host, "STATIC_DIR", tmp_path)
+    monkeypatch.setattr(image_host, "was_fetched", lambda _name: True)
+    monkeypatch.setattr(comparable_store, "load", load_stored)
+    monkeypatch.setattr(comparable_store, "save", save_stored)
+    monkeypatch.setattr(serpapi_client, "search_phone", search_phone)
     monkeypatch.setattr(serpapi_client, "search_page", search_page)
     monkeypatch.setattr(serpapi_client, "reverse_image_search", lens)
     monkeypatch.setattr(serpapi_client, "resolve_address", maps)
@@ -74,7 +94,14 @@ async def _user_id() -> str:
     return user.id
 
 
-async def _scan(*, bhk: str | None = None, description: str | None = None, override_reason: str | None = None):
+async def _scan(
+    *,
+    bhk: str | None = None,
+    description: str | None = None,
+    override_reason: str | None = None,
+    listing_url: str | None = None,
+    phone: str | None = None,
+):
     return await scan_service.run_scan(
         photos=[(b"jpeg-bytes", ".jpg")],
         address=ADDRESS,
@@ -84,6 +111,8 @@ async def _scan(*, bhk: str | None = None, description: str | None = None, overr
         description=description,
         user_id=await _user_id(),
         override_reason=override_reason,
+        listing_url=listing_url,
+        phone=phone,
     )
 
 
@@ -367,3 +396,112 @@ async def test_a_failed_page_lookup_keeps_the_evidence_without_its_price(searche
     assert len(result.evidence) == 1
     assert result.evidence[0].listed_price is None
     assert result.evidence[0].reasons == ["It is a listing for sale, but you submitted a rental."]
+
+
+# --- optional inputs, insights and stored comparables ------------------------------------
+
+LISTING_LINK = "https://www.olx.in/item/for-sale-houses-apartments-2-bhk-in-bengaluru-iid-77"
+
+
+async def test_a_pasted_listing_link_is_read_and_reported_without_changing_the_score(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    baseline = await _scan()
+    searches.page_result = {
+        "organic_results": [
+            {"link": LISTING_LINK, "title": "2BHK house for sale in Bengaluru", "snippet": "2 BHK. ₹ 85,00,000."}
+        ]
+    }
+
+    result = await _scan(listing_url=LISTING_LINK)
+
+    assert searches.page_lookups == [LISTING_LINK]
+    assert [i.title for i in result.insights] == ["This link is a sale listing"]
+    assert result.insights[0].url == LISTING_LINK
+    assert result.risk_score == baseline.risk_score
+
+
+async def test_a_phone_number_is_searched_and_never_stored_in_the_trace(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    searches.phone_result = {
+        "organic_results": [
+            {"title": "Scam alert", "snippet": "9876543210 took a token and vanished.", "link": "https://forum.example/1"}
+        ]
+    }
+
+    result = await _scan(phone="9876543210")
+
+    assert searches.phone_lookups == ["9876543210"]
+    assert result.insights[0].title == "This number appears on a page about fraud"
+    assert "9876543210" not in result.model_dump_json()
+
+
+async def test_neither_optional_lookup_runs_when_not_asked_for(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    result = await _scan()
+    assert searches.phone_lookups == []
+    assert searches.page_lookups == []
+    assert result.insights == []
+
+
+async def test_description_red_flags_become_insights_with_the_quoted_words(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    result = await _scan(description="Pay the token amount before visiting to hold it. WhatsApp only.")
+
+    assert {i.title for i in result.insights} == {"Asks for money before you see the home", "Wants to avoid phone calls"}
+    assert all(i.tier == "indicator" for i in result.insights)
+
+
+async def test_a_pincode_that_disagrees_with_maps_is_reported(searches, monkeypatch) -> None:
+    async def maps(query: str) -> dict:
+        return {"place_results": {"title": "5th Block", "address": "Koramangala, Bengaluru, Karnataka 560095, India"}}
+
+    monkeypatch.setattr(serpapi_client, "resolve_address", maps)
+    _reviewer(
+        monkeypatch,
+        NormalizedInput(locality="Koramangala", pincode="560034", address_resolvable=True, confidence=0.9),
+    )
+
+    result = await _scan()
+
+    assert "Pincode doesn't match Google Maps" in [i.title for i in result.insights]
+
+
+async def test_insights_are_stored_and_come_back_with_the_scan(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    result = await _scan(description="Owner is abroad. WhatsApp only.")
+
+    stored = await scan_service.get_scan(result.scan_id)
+
+    assert stored.insights == result.insights
+    assert len(stored.insights) == 2
+
+
+async def test_comparables_found_are_saved_and_earlier_ones_are_used(searches, monkeypatch) -> None:
+    from app.services.evidence import Comparable
+
+    searches.price_results = lambda query: {"organic_results": _rentals(28_000)}
+    searches.stored = [
+        Comparable(30_000, "2 BHK in Bengaluru", "https://example.com/old/1", "old", earlier=True),
+        Comparable(32_000, "2 BHK in Bengaluru", "https://example.com/old/2", "old", earlier=True),
+    ]
+    _reviewer(monkeypatch, None)
+
+    result = await _scan(bhk="2BHK")
+
+    assert result.signals.price_deviation.status == "ok"
+    assert len(result.signals.price_deviation.sources) == 3
+    city, bhk, saved = searches.saved[0]
+    assert (city, bhk, [item.rent for item in saved]) == ("Bengaluru", "2BHK", [28_000])
+
+
+async def test_the_coverage_counts_how_many_checks_ran(searches, monkeypatch) -> None:
+    async def down(_query: str, _city: str) -> dict:
+        raise TimeoutError("price search down")
+
+    monkeypatch.setattr(serpapi_client, "organic_price_search", down)
+    _reviewer(monkeypatch, None)
+
+    result = await _scan(bhk="2BHK")
+
+    assert (result.checks_run, result.checks_total) == (2, 3)
+    assert result.partial is True

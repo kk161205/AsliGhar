@@ -9,6 +9,9 @@ RiskBand = Literal["Low", "Moderate", "High", "Severe"]
 # and found nothing worrying. Stored scans from before this field existed
 # parse as "ok".
 SignalStatus = Literal["ok", "unavailable"]
+# "proven": an exact photo or text match we can link to. "indicator": an
+# inference from search results or statistics — worth checking, not proof.
+Tier = Literal["proven", "indicator"]
 
 
 class SignalSource(BaseModel):
@@ -25,6 +28,7 @@ class SignalResult(BaseModel):
     finding: str
     status: SignalStatus = "ok"
     sources: list[SignalSource] = []
+    basis: Tier = "indicator"
 
 
 class ScanSignals(BaseModel):
@@ -50,6 +54,17 @@ class ImageMatchEvidence(BaseModel):
     # The page's own description as Google shows it (title, size, price), so the
     # listing can be judged without opening it.
     source_snippet: Optional[str] = None
+    tier: Tier = "indicator"
+
+
+class Insight(BaseModel):
+    """A finding that adds context without changing the score."""
+
+    kind: Literal["description", "listing_link", "phone", "address"]
+    tier: Tier
+    title: str
+    detail: str
+    url: Optional[str] = None
 
 
 class UnderstoodInput(BaseModel):
@@ -91,6 +106,18 @@ class ScanResponse(BaseModel):
     # never an input to the score or the summary.
     override_reason: Optional[str] = None
     search_trace: Optional[SearchTrace] = None
+    insights: list[Insight] = []
+
+    @computed_field
+    @property
+    def checks_total(self) -> int:
+        return 3
+
+    @computed_field
+    @property
+    def checks_run(self) -> int:
+        checks = (self.signals.image_reuse, self.signals.price_deviation, self.signals.address_validity)
+        return sum(check.status == "ok" for check in checks)
 
     @computed_field  # derived, so it's right for stored scans too, not just new ones
     @property

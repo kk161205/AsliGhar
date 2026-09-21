@@ -160,12 +160,73 @@ def test_a_real_listing_of_the_same_home_is_consistent_not_contradictory() -> No
     assert "1 other property listing(s) show the same photo without contradicting it" in signal.finding
 
 
-def test_pages_that_are_not_property_sites_are_ignored() -> None:
+def test_pages_that_are_not_property_listings_are_ignored() -> None:
     signal, matches = _image_reuse(
-        _lens({"title": "House for sale in Pune", "link": "https://someblog.example/post", "source": "Some Blog"})
+        _lens({"title": "Sunrise over the hills - photo gallery", "link": "https://someblog.example/post", "source": "Some Blog"})
     )
     assert matches == []
     assert signal.score == 0
+
+
+def test_a_listing_on_a_site_with_unconfirmed_url_shapes_is_only_an_indicator() -> None:
+    signal, matches = _image_reuse(
+        _lens({"title": "3BHK House for Sale in Pune", "link": "https://www.somenewportal.com/property/3bhk-house-sale-pune-8801234", "source": "Some Portal"})
+    )
+
+    assert matches[0].tier == "indicator"
+    assert matches[0].source_domain == "somenewportal.com"
+    assert signal.basis == "indicator"
+    assert signal.score == scoring.IMAGE_REUSE_INDICATOR_PER_PHOTO
+
+
+def test_a_known_listing_url_is_proven_and_outranks_an_indicator_on_the_same_photo() -> None:
+    signal, matches = _image_reuse(
+        _lens(
+            _match(OLX_SALE_TITLE, OLX_SALE_URL),
+            {"title": "3BHK House for Sale in Pune", "link": "https://www.somenewportal.com/property/3bhk-house-sale-pune-8801234", "source": "P"},
+        )
+    )
+
+    assert {m.tier for m in matches} == {"proven", "indicator"}
+    assert signal.basis == "proven"
+    assert signal.score == scoring.image_reuse_score(1)
+
+
+def test_an_indicator_photo_and_a_proven_photo_add_up() -> None:
+    both = [
+        {"exact_matches": [_match(OLX_SALE_TITLE, OLX_SALE_URL)]},
+        {"exact_matches": [{"title": "3BHK House for Sale in Pune", "link": "https://www.somenewportal.com/property/x-8801234", "source": "P"}]},
+    ]
+    signal, _ = _image_reuse(both)
+    assert signal.score == scoring.image_reuse_score(1, 1)
+
+
+@pytest.mark.parametrize(
+    "title, link, expected",
+    [
+        ("House for sale in Pune", "https://someblog.example/post-8812345", True),
+        ("3BHK Independent House for Rent in Dream Castle Colony, Agra", "https://www.99acres.com/3bhk-independent-house-for-rent-agra-spid-84512345", True),
+        ("Buy 1050 sqft 3 BHK Villa for Sale in Medavakkam Chennai", "https://portal.example/propertyDetails/3-BHK-Villa-FOR-Sale&id=4d423836353230333839", True),
+        # A listing page has an id in its URL; without one it is not treated as a single listing:
+        ("House for sale in Pune", "https://someblog.example/post", False),
+        # Real search/category/aggregate pages seen in live exact-match results:
+        ("330 Flats & Apartments for Rent in Dhaulpur - OLX India", "https://www.olx.in/dhaulpur_g4059117/for-rent-houses-apartments_c1723?filter=bachelors_eq_no", False),
+        ("Independent Houses - Buy, Sell & Rent Properties in Bharatpur | OLX", "https://www.olx.in/bharatpur_g4059109/properties_c3/q-independent-houses", False),
+        ("3 Bhk For In in Bodla - OLX India", "https://www.olx.in/bodla_g5339343/q-3-bhk-for-in", False),
+        ("Houses near Rainbow Ideal Mega Mart, Faizabad Road, Lucknow", "https://www.magicbricks.com/house-for-sale-near-rainbow-lucknow-pppfs", False),
+        ("152+ Villas in Mitra Nagar, Ram Nagar, Jaipur from Rs 2 Crores", "https://housing.com/in/buy/jaipur/mitra-nagar-gid/villas-in-2-crores-to-3-crores-fid/", False),
+        ("2 BHK Flats for Rent in Bengaluru", "https://housing.com/rent/2bhk-flats-for-rent-in-bangalore-karnataka-C4P38f9yfbk7p3m2h1f", False),
+        # Real Magicbricks / 99acres category pages (no listing id in the URL):
+        ("Single room for rent in Khar Mumbai - MagicBricks", "https://www.magicbricks.com/single-room-for-rent-in-khar-mumbai-pppfr", False),
+        ("खार वेस्ट में किराए पर 1 BHK फ्लैट्स - MagicBricks", "https://www.magicbricks.com/hi-in/1-bhk-flats-for-rent-in-khar-west-mumbai-pppfr", False),
+        ("Khar Danda Road में किराए पर 36 सिंगल रूम खोजें", "https://www.magicbricks.com/hi-in/single-room-for-rent-in-khar-danda-road-mumbai", False),
+        ("Society / Gated Community Flats for Rent in Wadgaon Sheri, Pune", "https://www.99acres.com/society-flats-apartments-for-rent-in-wadgaon-sheri-pune-ffid", False),
+        ("Danny DeVito - Wikipedia", "https://en.wikipedia.org/wiki/Danny_DeVito", False),
+        ("Family home", "https://example.com/", False),
+    ],
+)
+def test_looks_like_listing_page(title: str, link: str, expected: bool) -> None:
+    assert evidence.looks_like_listing_page(title, link) is expected
 
 
 @pytest.mark.parametrize(
@@ -184,9 +245,9 @@ def test_a_property_site_is_recognised_by_its_link_not_its_display_name(link: st
 
 
 @pytest.mark.parametrize("link", ["https://notolx.in/x", "https://olx.in.evil.example/x", "https://example.com/olx.in"])
-def test_a_look_alike_host_is_not_a_property_site(link: str) -> None:
+def test_a_look_alike_host_is_never_taken_for_olx_or_proven(link: str) -> None:
     _, matches = _image_reuse(_lens(_match("House for sale", link)))
-    assert matches == []
+    assert all(m.source_domain != "olx.in" and m.tier == "indicator" for m in matches)
 
 
 def test_a_failed_call_degrades_gracefully() -> None:
@@ -462,3 +523,46 @@ def test_an_address_with_no_category_is_not_penalised() -> None:
     assert signal.score == 0
     assert signal.status == "ok"
     assert "confirms the place exists" in signal.finding
+
+
+# --- stored comparables from earlier scans ------------------------------------------------
+
+
+def _stored(*amounts: int) -> list[evidence.Comparable]:
+    return [
+        evidence.Comparable(a, "3 BHK for rent in Agra", f"https://example.com/old/{a}", "old snippet", earlier=True)
+        for a in amounts
+    ]
+
+
+def test_earlier_comparables_top_up_a_thin_live_search() -> None:
+    signal = evidence.extract_price_deviation(
+        _rentals(20_000), submitted_rent=9_000, city="Agra", bhk="3BHK", stored=_stored(18_000, 22_000)
+    )
+
+    assert signal.status == "ok"
+    assert len(signal.sources) == 3
+    assert [s.detail.endswith("(from an earlier search)") for s in signal.sources] == [False, True, True]
+
+
+def test_a_page_found_now_and_stored_counts_once() -> None:
+    live = _rentals(20_000, 21_000, 22_000)
+    stored = [evidence.Comparable(20_000, "x", "https://example.com/rent/20000", "x", earlier=True)]
+    signal = evidence.extract_price_deviation(live, submitted_rent=9_000, city="Agra", bhk="3BHK", stored=stored)
+    assert len(signal.sources) == 3
+
+
+def test_a_failed_search_can_still_be_answered_from_earlier_comparables() -> None:
+    signal = evidence.extract_price_deviation(
+        httpx.TimeoutException("t"), submitted_rent=9_000, city="Agra", bhk="3BHK", stored=_stored(18_000, 20_000, 22_000)
+    )
+    assert signal.status == "ok"
+    assert signal.score > 0
+
+
+def test_a_failed_search_with_too_little_stored_is_still_unavailable() -> None:
+    signal = evidence.extract_price_deviation(
+        httpx.TimeoutException("t"), submitted_rent=9_000, city="Agra", bhk="3BHK", stored=_stored(18_000)
+    )
+    assert signal.status == "unavailable"
+    assert "didn't respond" in signal.finding
