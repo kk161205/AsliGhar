@@ -34,6 +34,9 @@ export interface CreateScanInput {
   description?: string;
   // Why an unusual rent is right; only sent once the user has been asked.
   overrideReason?: string;
+  // Optional extras that let the listing itself and the number be checked.
+  listingUrl?: string;
+  phone?: string;
 }
 
 export async function createScan(input: CreateScanInput): Promise<ScanResponse> {
@@ -47,6 +50,8 @@ export async function createScan(input: CreateScanInput): Promise<ScanResponse> 
   if (input.bhk) formData.append("bhk", input.bhk);
   if (input.description) formData.append("description", input.description);
   if (input.overrideReason) formData.append("override_reason", input.overrideReason);
+  if (input.listingUrl) formData.append("listing_url", input.listingUrl);
+  if (input.phone) formData.append("phone", input.phone);
 
   const response = await fetch("/api/v1/scan", {
     method: "POST",

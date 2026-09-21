@@ -8,6 +8,7 @@ interface HowWeSearchedProps {
 
 export default function HowWeSearched({ trace }: HowWeSearchedProps) {
   const { understood, queries, reviewer_used } = trace;
+  const photos = trace.photos ?? [];
   const facts = [
     ["Area", understood.locality],
     ["Landmark", understood.landmark],
@@ -33,9 +34,19 @@ export default function HowWeSearched({ trace }: HowWeSearchedProps) {
           ))}
         </dl>
       )}
+      {photos.length > 0 && (
+        <ul className="how-we-searched__photos">
+          {photos.map((photo) => (
+            <li key={photo.index}>
+              Photo {photo.index + 1}: {photo.pages_found} page{photo.pages_found === 1 ? "" : "s"} carry it,{" "}
+              {photo.listing_pages} of them {photo.listing_pages === 1 ? "is a property listing" : "are property listings"}.
+            </li>
+          ))}
+        </ul>
+      )}
       <ul className="how-we-searched__queries">
-        {queries.map((item) => (
-          <li key={item.check}>
+        {queries.map((item, index) => (
+          <li key={`${item.check}-${index}`}>
             <span>{CHECK_LABELS[item.check]}</span>
             <code>{item.query}</code>
           </li>

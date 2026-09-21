@@ -1,4 +1,5 @@
 import type { SignalResult } from "../api/types";
+import TierBadge from "./TierBadge";
 
 interface SignalRowProps {
   label: string;
@@ -18,10 +19,14 @@ interface SignalRowProps {
 export default function SignalRow({ label, signal }: SignalRowProps) {
   const unavailable = signal.status === "unavailable";
   const ratio = signal.max > 0 ? signal.score / signal.max : 0;
+  const sources = signal.sources ?? [];
   return (
     <div className="signal-row">
       <div className="signal-row__header">
-        <span className="signal-row__label">{label}</span>
+        <span className="signal-row__label">
+          {label}
+          {!unavailable && signal.score > 0 && <TierBadge tier={signal.basis} />}
+        </span>
         {unavailable ? (
           <span className="signal-row__score signal-row__score--unavailable">Couldn't check</span>
         ) : (
@@ -43,6 +48,25 @@ export default function SignalRow({ label, signal }: SignalRowProps) {
         </div>
       )}
       <p className="signal-row__finding">{signal.finding}</p>
+      {sources.length > 0 && (
+        <details className="signal-row__sources">
+          <summary>What this is based on ({sources.length})</summary>
+          <ul>
+            {sources.map((source, index) => (
+              <li key={`${source.url ?? source.title}-${index}`}>
+                {source.url ? (
+                  <a href={source.url} target="_blank" rel="noreferrer noopener">
+                    {source.title}
+                  </a>
+                ) : (
+                  <span>{source.title}</span>
+                )}
+                <span className="signal-row__source-detail">{source.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

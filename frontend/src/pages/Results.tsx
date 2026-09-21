@@ -5,6 +5,7 @@ import type { ScanResponse } from "../api/types";
 import AiSummary from "../components/AiSummary";
 import EvidenceTrail from "../components/EvidenceTrail";
 import HowWeSearched from "../components/HowWeSearched";
+import Insights from "../components/Insights";
 import Nav from "../components/Nav";
 import RiskGauge from "../components/RiskGauge";
 import SignalRow from "../components/SignalRow";
@@ -51,10 +52,13 @@ export default function Results() {
             <h1>Scan result</h1>
             <p className="mono results__id">{state.scan.scan_id}</p>
             <RiskGauge score={state.scan.risk_score} band={state.scan.risk_band} />
-            {state.scan.partial && (
+            {state.scan.partial ? (
               <p role="note" className="results__partial">
-                Some checks couldn't run, so this score may understate the risk.
+                {state.scan.checks_run} of {state.scan.checks_total} checks ran, so this score may
+                understate the risk.
               </p>
+            ) : (
+              <p className="results__coverage">All {state.scan.checks_total} checks ran.</p>
             )}
 
             {state.scan.override_reason && (
@@ -72,8 +76,14 @@ export default function Results() {
 
             <section className="results__evidence">
               <h2>Evidence trail</h2>
+              <p className="results__legend">
+                <strong>Proven</strong> means an exact match we can link to. <strong>Indicator</strong>{" "}
+                means worth checking, but not proof.
+              </p>
               <EvidenceTrail evidence={state.scan.evidence} />
             </section>
+
+            <Insights insights={state.scan.insights ?? []} />
 
             <AiSummary summary={state.scan.ai_summary} />
 

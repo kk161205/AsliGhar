@@ -26,6 +26,22 @@ interface UploadFormProps {
   confirmation?: RentConfirmation | null;
 }
 
+// Same rules as the backend (which is the source of truth): an http(s) link,
+// and an Indian mobile number that may carry +91 or a leading 0.
+function isWebAddress(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeMobile(value: string): string | null {
+  const digits = value.replace(/[\s\-().]/g, "").replace(/^(\+?91|0)(?=\d{10}$)/, "");
+  return /^[6-9]\d{9}$/.test(digits) ? digits : null;
+}
+
 function validatePhotos(photos: File[]): string | null {
   if (photos.length < MIN_PHOTOS || photos.length > MAX_PHOTOS) {
     return `Add between ${MIN_PHOTOS} and ${MAX_PHOTOS} photos.`;
@@ -53,6 +69,8 @@ export default function UploadForm({
   const [rent, setRent] = useState("");
   const [bhk, setBhk] = useState("");
   const [description, setDescription] = useState("");
+  const [listingUrl, setListingUrl] = useState("");
+  const [phone, setPhone] = useState("");
   const [reason, setReason] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +116,16 @@ export default function UploadForm({
       return;
     }
 
+    if (listingUrl.trim() && !isWebAddress(listingUrl.trim())) {
+      setError("Enter the listing link as a full web address (https://…).");
+      return;
+    }
+    const mobile = phone.trim() ? normalizeMobile(phone) : null;
+    if (phone.trim() && mobile === null) {
+      setError("Enter a 10-digit mobile number.");
+      return;
+    }
+
     if (needsReason && reason.trim().length < MIN_REASON_CHARS) {
       setError(`Say why this rent is right (at least ${MIN_REASON_CHARS} characters).`);
       return;
@@ -111,6 +139,8 @@ export default function UploadForm({
       rent: Math.round(rentValue),
       bhk: bhk.trim() || undefined,
       description: description.trim() || undefined,
+      listingUrl: listingUrl.trim() || undefined,
+      phone: mobile ?? undefined,
       overrideReason: needsReason ? reason.trim() : undefined,
     });
   }
@@ -236,6 +266,37 @@ export default function UploadForm({
           />
         </label>
       </div>
+
+      <div className="upload-form__row upload-form__row--two">
+        <label className="upload-form__field">
+          <span className="upload-form__label-row">
+            <span className="upload-form__label-text">Listing link</span>
+            <span className="upload-form__optional">Optional</span>
+          </span>
+          <input
+            type="url"
+            value={listingUrl}
+            onChange={(event) => setListingUrl(event.target.value)}
+            placeholder="https://…"
+          />
+        </label>
+        <label className="upload-form__field">
+          <span className="upload-form__label-row">
+            <span className="upload-form__label-text">Contact number</span>
+            <span className="upload-form__optional">Optional</span>
+          </span>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            placeholder="98765 43210"
+          />
+        </label>
+      </div>
+      <p className="upload-form__hint">
+        A link lets us read the listing itself; a number lets us look for it on other listings.
+        Adding several photos of the same home helps us confirm a match.
+      </p>
 
       <label className="upload-form__field">
         <span className="upload-form__label-row">

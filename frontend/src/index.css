@@ -994,3 +994,132 @@ button {
     align-items: flex-start;
   }
 }
+
+/* ---- Evidence tiers, insights and coverage ---- */
+
+.tier {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 6px;
+  border: 1px solid var(--ink-600);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  color: var(--ink-600);
+}
+
+.tier--proven {
+  background: var(--ink-900);
+  border-color: var(--ink-900);
+  color: var(--paper-50);
+}
+
+.results__coverage {
+  max-width: 640px;
+  margin: 0 0 var(--space-6);
+  color: var(--ink-600);
+  font-size: var(--text-sm);
+}
+
+.results__legend {
+  margin: 0 0 var(--space-4);
+  color: var(--ink-600);
+  font-size: var(--text-sm);
+}
+
+.signal-row__sources {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--ink-600);
+}
+
+.signal-row__sources summary {
+  cursor: pointer;
+}
+
+.signal-row__sources ul {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.signal-row__source-detail {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.evidence-trail__title {
+  margin: 0;
+  color: var(--ink-900);
+}
+
+.evidence-trail__reasons {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--ink-900);
+}
+
+.evidence-trail__matched {
+  margin: 0;
+}
+
+.evidence-trail__quote {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--line-200);
+  overflow-wrap: anywhere;
+}
+
+.evidence-trail__quote-label {
+  display: block;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.results__insights {
+  max-width: 640px;
+  margin-bottom: var(--space-8);
+}
+
+.insights {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.insights__title {
+  margin: 0 0 var(--space-1);
+  font-weight: 500;
+}
+
+.insights__detail {
+  margin: 0 0 var(--space-1);
+  color: var(--ink-600);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.how-we-searched__photos {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-4);
+}
+
+.upload-form__row--two {
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 640px) {
+  .upload-form__row--two {
+    grid-template-columns: 1fr;
+  }
+}

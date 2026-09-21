@@ -144,3 +144,58 @@ describe("rent pre-check", () => {
     expect(screen.getByAltText("Listing photo 1")).toBeInTheDocument();
   });
 });
+
+describe("optional listing link and contact number", () => {
+  it("sends them with the scan, with the number normalised to 10 digits", async () => {
+    precheckRent.mockResolvedValue(OK);
+    const user = userEvent.setup();
+    renderFlow();
+    await fillForm(user, "25000");
+    await user.type(screen.getByLabelText(/listing link/i), "https://www.olx.in/item/x-iid-1");
+    await user.type(screen.getByLabelText(/contact number/i), "+91 98765 43210");
+
+    await user.click(screen.getByRole("button", { name: "Check this listing" }));
+
+    expect(await screen.findByText("result page")).toBeInTheDocument();
+    expect(createScan.mock.calls[0][0].listingUrl).toBe("https://www.olx.in/item/x-iid-1");
+    expect(createScan.mock.calls[0][0].phone).toBe("9876543210");
+  });
+
+  it("leaves them out when blank", async () => {
+    precheckRent.mockResolvedValue(OK);
+    const user = userEvent.setup();
+    renderFlow();
+    await fillForm(user, "25000");
+
+    await user.click(screen.getByRole("button", { name: "Check this listing" }));
+
+    await screen.findByText("result page");
+    expect(createScan.mock.calls[0][0].listingUrl).toBeUndefined();
+    expect(createScan.mock.calls[0][0].phone).toBeUndefined();
+  });
+
+  it("refuses a number that is not a 10-digit mobile without scanning", async () => {
+    const user = userEvent.setup();
+    renderFlow();
+    await fillForm(user, "25000");
+    await user.type(screen.getByLabelText(/contact number/i), "12345");
+
+    await user.click(screen.getByRole("button", { name: "Check this listing" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("10-digit mobile number");
+    expect(createScan).not.toHaveBeenCalled();
+    expect(precheckRent).not.toHaveBeenCalled();
+  });
+
+  it("refuses a listing link that is not a web address without scanning", async () => {
+    const user = userEvent.setup();
+    renderFlow();
+    await fillForm(user, "25000");
+    await user.type(screen.getByLabelText(/listing link/i), "ftp://example.com/x");
+
+    await user.click(screen.getByRole("button", { name: "Check this listing" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("full web address");
+    expect(createScan).not.toHaveBeenCalled();
+  });
+});

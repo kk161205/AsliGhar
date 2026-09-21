@@ -10,6 +10,7 @@ const TRACE: SearchTrace = {
     { check: "address", query: "flat 302 koramangala blr" },
     { check: "price", query: "2BHK rent Koramangala Bengaluru price" },
   ],
+  photos: [{ index: 0, pages_found: 15, listing_pages: 2 }],
 };
 
 describe("HowWeSearched", () => {
@@ -22,6 +23,11 @@ describe("HowWeSearched", () => {
     expect(screen.queryByText("Landmark")).not.toBeInTheDocument();
     expect(screen.getByText("flat 302 koramangala blr")).toBeInTheDocument();
     expect(screen.getByText("2BHK rent Koramangala Bengaluru price")).toBeInTheDocument();
+  });
+
+  it("says how many pages the image search found for each photo", () => {
+    render(<HowWeSearched trace={TRACE} />);
+    expect(screen.getByText(/Photo 1: 15 pages carry it, 2 of them are property listings/)).toBeInTheDocument();
   });
 
   it("says plainly when the address couldn't be read", () => {
