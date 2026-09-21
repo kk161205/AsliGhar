@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from typing import Literal, NamedTuple
 from urllib.parse import urlparse
 
-from app.models.schemas import ImageMatchEvidence, SignalResult, SignalSource, Tier
+from app.models.schemas import ImageMatchEvidence, PhotoCoverage, SignalResult, SignalSource, Tier
 from app.services import bhk as bhk_reader
 from app.services import cities, scoring
 from app.services.money import inr
@@ -314,6 +314,23 @@ def _collect_candidates(
             candidate.photo_indexes.add(photo_index)
         logger.info("google_lens photo %s: %s exact matches", photo_index, len(exact_matches))
     return candidates, stock
+
+
+def photo_coverage(lens_results: list) -> list[PhotoCoverage]:
+    """Per photo that was searched: how many pages carry it and how many of those are property listings."""
+    candidates, _ = _collect_candidates(lens_results, None)
+    coverage = []
+    for index, result in enumerate(lens_results):
+        if isinstance(result, Exception):
+            continue
+        coverage.append(
+            PhotoCoverage(
+                index=index,
+                pages_found=len(result.get("exact_matches", [])),
+                listing_pages=sum(index in candidate.photo_indexes for candidate in candidates.values()),
+            )
+        )
+    return coverage
 
 
 def extract_image_reuse(

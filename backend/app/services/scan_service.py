@@ -254,6 +254,7 @@ async def run_scan(
             *(TraceQuery(check="address", query=query) for query in address_queries),
             *(TraceQuery(check="price", query=query) for query in price_queries),
         ],
+        photos=evidence.photo_coverage(lens_results),
     )
 
     also_identified = _also_identified(contact, phone_result, phrase, phrase_result)

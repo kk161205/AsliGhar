@@ -85,12 +85,21 @@ class TraceQuery(BaseModel):
     query: str
 
 
+class PhotoCoverage(BaseModel):
+    """What the image search returned for one submitted photo."""
+
+    index: int
+    pages_found: int
+    listing_pages: int
+
+
 class SearchTrace(BaseModel):
     """How a scan searched, kept so a result can be explained afterwards."""
 
     reviewer_used: bool
     understood: UnderstoodInput
     queries: list[TraceQuery]
+    photos: list[PhotoCoverage] = []
 
 
 class PrecheckRequest(BaseModel):

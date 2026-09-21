@@ -204,3 +204,17 @@ def test_a_recent_or_undated_or_own_page_gives_no_age_insight() -> None:
     assert insights.photo_age_insight(unparseable, None, today=TODAY) == []
     assert insights.photo_age_insight(own, OLX_SALE, today=TODAY) == []
     assert insights.photo_age_insight([TimeoutError("x")], None, today=TODAY) == []
+
+
+# --- what the image search returned, per photo --------------------------------------------------
+
+
+def test_photo_coverage_says_how_many_pages_and_listings_each_photo_found() -> None:
+    lens = [
+        {"exact_matches": [_match("3BHK House for Sale in Pune", UNKNOWN_SITE_LISTING), _match("Blog post", "https://blog.example/x")]},
+        {"exact_matches": []},
+        TimeoutError("lens down"),
+    ]
+    coverage = evidence.photo_coverage(lens)
+
+    assert [(c.index, c.pages_found, c.listing_pages) for c in coverage] == [(0, 2, 1), (1, 0, 0)]
