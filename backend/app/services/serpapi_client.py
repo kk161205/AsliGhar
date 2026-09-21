@@ -123,3 +123,10 @@ async def search_phone(phone: str) -> dict:
     return await _get(
         "google", {"q": f'"{phone}"', "gl": "in"}, cache_ttl_seconds=get_settings().price_cache_ttl_seconds
     )
+
+
+async def search_phrase(phrase: str) -> dict:
+    """Pages containing this exact wording (an exact-phrase search)."""
+    return await _get(
+        "google", {"q": f'"{phrase}"', "gl": "in"}, cache_ttl_seconds=get_settings().price_cache_ttl_seconds
+    )

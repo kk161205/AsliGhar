@@ -22,6 +22,8 @@ class _Recorder:
         self.page_lookups: list[str] = []
         self.page_result: dict | None = None
         self.phone_lookups: list[str] = []
+        self.phrase_lookups: list[str] = []
+        self.phrase_result: dict = {"organic_results": []}
         self.phone_result: dict = {"organic_results": []}
         self.stored: list = []
         self.saved: list = []
@@ -74,6 +76,11 @@ def searches(monkeypatch, tmp_path) -> _Recorder:
 
     monkeypatch.setattr(image_host, "STATIC_DIR", tmp_path)
     monkeypatch.setattr(image_host, "was_fetched", lambda _name: True)
+    async def search_phrase(phrase: str) -> dict:
+        recorder.phrase_lookups.append(phrase)
+        return recorder.phrase_result
+
+    monkeypatch.setattr(serpapi_client, "search_phrase", search_phrase)
     monkeypatch.setattr(comparable_store, "load", load_stored)
     monkeypatch.setattr(comparable_store, "save", save_stored)
     monkeypatch.setattr(serpapi_client, "search_phone", search_phone)
@@ -505,3 +512,79 @@ async def test_the_coverage_counts_how_many_checks_ran(searches, monkeypatch) ->
 
     assert (result.checks_run, result.checks_total) == (2, 3)
     assert result.partial is True
+
+
+# --- finding the same listing through several identifiers ------------------------------------
+
+PORTAL_LISTING = "https://www.somenewportal.com/property/2bhk-flat-for-rent-in-pune-8801234"
+LONG_DESCRIPTION = "Spacious two bedroom semi furnished flat close to the metro station with covered parking and a gym"
+
+
+async def test_a_phone_number_written_in_the_description_is_searched_when_none_is_entered(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    await _scan(description="Sunny flat. Call 98765 43210 for a visit.")
+    assert searches.phone_lookups == ["9876543210"]
+
+
+async def test_an_entered_number_wins_over_one_in_the_description(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    await _scan(description="Call 98765 43210.", phone="9123456789")
+    assert searches.phone_lookups == ["9123456789"]
+
+
+async def test_the_description_is_searched_as_an_exact_phrase_only_when_it_has_one(searches, monkeypatch) -> None:
+    _reviewer(monkeypatch, None)
+    await _scan(description="Flat for rent. Call now.")
+    assert searches.phrase_lookups == []
+
+    await _scan(description=LONG_DESCRIPTION)
+    assert searches.phrase_lookups == [" ".join(LONG_DESCRIPTION.split()[:14])]
+
+
+async def test_a_photo_and_the_phone_on_the_same_page_confirm_it_and_say_how(searches, monkeypatch) -> None:
+    searches.lens_result = {"exact_matches": [{"title": "2BHK Flat for Rent in Pune", "link": PORTAL_LISTING, "source": "P"}]}
+    searches.phone_result = {
+        "organic_results": [{"title": "2BHK Flat for Rent in Pune", "snippet": "Owner 9876543210", "link": PORTAL_LISTING}]
+    }
+    _reviewer(monkeypatch, None)
+
+    result = await _scan(phone="9876543210")
+
+    assert result.evidence[0].tier == "proven"
+    assert result.evidence[0].matched_by == ["photo 1", "phone number"]
+    assert "9876543210" not in result.model_dump_json()
+
+
+async def test_a_photo_and_the_description_wording_on_the_same_page_confirm_it(searches, monkeypatch) -> None:
+    searches.lens_result = {"exact_matches": [{"title": "2BHK Flat for Rent in Pune", "link": PORTAL_LISTING, "source": "P"}]}
+    searches.phrase_result = {
+        "organic_results": [{"title": "2BHK Flat for Rent in Pune", "snippet": LONG_DESCRIPTION, "link": PORTAL_LISTING}]
+    }
+    _reviewer(monkeypatch, None)
+
+    result = await _scan(description=LONG_DESCRIPTION)
+
+    assert result.evidence[0].matched_by == ["photo 1", "description wording"]
+    assert result.evidence[0].tier == "proven"
+    assert [i.title for i in result.insights if i.kind == "description"] == ["This description is on a listing in Pune"]
+
+
+async def test_a_dated_old_photo_page_becomes_an_insight(searches, monkeypatch) -> None:
+    searches.lens_result = {
+        "exact_matches": [{"title": "Flat for rent", "link": "https://blog.example/old-flat", "source": "B", "date": "Mar 4, 2023"}]
+    }
+    _reviewer(monkeypatch, None)
+
+    result = await _scan()
+
+    assert [i.title for i in result.insights] == ["This photo was online long before now"]
+
+
+async def test_the_pasted_listing_is_not_reported_as_another_listing(searches, monkeypatch) -> None:
+    own = "https://www.olx.in/item/for-sale-houses-apartments-2-bhk-in-bengaluru-iid-77"
+    searches.lens_result = {"exact_matches": [{"title": "2BHK house for sale in Bengaluru", "link": own, "source": "OLX"}]}
+    _reviewer(monkeypatch, None)
+
+    result = await _scan(listing_url=own)
+
+    assert result.evidence == []

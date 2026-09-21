@@ -55,12 +55,15 @@ class ImageMatchEvidence(BaseModel):
     # listing can be judged without opening it.
     source_snippet: Optional[str] = None
     tier: Tier = "indicator"
+    # Every submitted photo that appears on this page, and what else pointed at it.
+    photo_indexes: list[int] = []
+    matched_by: list[str] = []
 
 
 class Insight(BaseModel):
     """A finding that adds context without changing the score."""
 
-    kind: Literal["description", "listing_link", "phone", "address"]
+    kind: Literal["description", "listing_link", "phone", "address", "photo"]
     tier: Tier
     title: str
     detail: str

@@ -132,6 +132,21 @@ async def _search_prices(
     return {"organic_results": merged}
 
 
+def _also_identified(contact: str | None, phone_result, phrase: str | None, phrase_result) -> dict[str, list[str]]:
+    """Pages the phone number or the description's wording also points at, by page key.
+
+    A photo match on one of these pages is corroborated by an independent identifier.
+    """
+    identified: dict[str, list[str]] = {}
+    if contact and not isinstance(phone_result, Exception):
+        for hit in insights.phone_hits(phone_result.get("organic_results", []), contact):
+            identified.setdefault(evidence.page_key(hit.get("link", "")), []).append("phone number")
+    if phrase and not isinstance(phrase_result, Exception):
+        for hit in insights.text_hits(phrase_result.get("organic_results", []), phrase):
+            identified.setdefault(evidence.page_key(hit.get("link", "")), []).append("description wording")
+    return identified
+
+
 def _context_insights(
     *,
     description: str | None,
@@ -139,6 +154,9 @@ def _context_insights(
     link_result,
     phone: str | None,
     phone_result,
+    phrase: str | None,
+    phrase_result,
+    lens_results: list,
     maps_place: dict | None,
     stated_pincode: str | None,
     rent: int,
@@ -158,6 +176,13 @@ def _context_insights(
             logger.warning("Phone number search failed: %s", phone_result)
         else:
             found += insights.phone_insights(phone_result.get("organic_results", []), phone, city)
+    if phrase:
+        if isinstance(phrase_result, Exception):
+            logger.warning("Description search failed: %s", phrase_result)
+        else:
+            hits = insights.text_hits(phrase_result.get("organic_results", []), phrase)
+            found += insights.description_reuse_insights(hits, city, listing_url)
+    found += insights.photo_age_insight(lens_results, listing_url)
     found += insights.pincode_insight(maps_place, stated_pincode)
     return found
 
@@ -183,7 +208,11 @@ async def run_scan(
     lens_tasks = [asyncio.ensure_future(serpapi_client.reverse_image_search(url)) for url in image_urls]
     # Optional inputs need nothing from the reviewer either.
     link_task = asyncio.ensure_future(serpapi_client.search_page(listing_url)) if listing_url else None
-    phone_task = asyncio.ensure_future(serpapi_client.search_phone(phone)) if phone else None
+    # A number written in the description is used when none was entered.
+    contact = phone or next(iter(listing_text.phones_in(description)), None)
+    phone_task = asyncio.ensure_future(serpapi_client.search_phone(contact)) if contact else None
+    phrase = listing_text.distinctive_phrase(description)
+    phrase_task = asyncio.ensure_future(serpapi_client.search_phrase(phrase)) if phrase else None
 
     reviewed = await _review(address, city, description)
     # A stated BHK wins; otherwise only one written in the description is used —
@@ -201,8 +230,13 @@ async def run_scan(
     stored_task = asyncio.ensure_future(comparable_store.load(city, stated_bhk))
     lens_results = await asyncio.gather(*lens_tasks, return_exceptions=True)
     # sleep(0) stands in for an optional lookup that wasn't requested.
-    maps_outcome, price_result, stored, link_result, phone_result = await asyncio.gather(
-        maps_task, price_task, stored_task, link_task or asyncio.sleep(0), phone_task or asyncio.sleep(0),
+    maps_outcome, price_result, stored, link_result, phone_result, phrase_result = await asyncio.gather(
+        maps_task,
+        price_task,
+        stored_task,
+        link_task or asyncio.sleep(0),
+        phone_task or asyncio.sleep(0),
+        phrase_task or asyncio.sleep(0),
         return_exceptions=True,
     )
     maps_result, city_added = maps_outcome if not isinstance(maps_outcome, Exception) else (maps_outcome, False)
@@ -222,10 +256,15 @@ async def run_scan(
         ],
     )
 
-    image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city)
+    also_identified = _also_identified(contact, phone_result, phrase, phrase_result)
+    image_reuse_signal, image_evidence = evidence.extract_image_reuse(
+        lens_results, rent, city, also_identified=also_identified, own_listing_url=listing_url
+    )
     if image_evidence:
         pages = await _look_up_pages(image_evidence)
-        image_reuse_signal, image_evidence = evidence.extract_image_reuse(lens_results, rent, city, pages)
+        image_reuse_signal, image_evidence = evidence.extract_image_reuse(
+            lens_results, rent, city, pages, also_identified=also_identified, own_listing_url=listing_url
+        )
     address_signal = evidence.extract_address_validity(maps_result, city, city_added=city_added)
     price_signal = evidence.extract_price_deviation(
         price_result, rent, city=city, bhk=stated_bhk, stored=[] if isinstance(stored, Exception) else stored
@@ -238,8 +277,11 @@ async def run_scan(
         description=description,
         listing_url=listing_url,
         link_result=link_result,
-        phone=phone,
+        phone=contact,
         phone_result=phone_result,
+        phrase=phrase,
+        phrase_result=phrase_result,
+        lens_results=lens_results,
         maps_place=evidence.resolved_place(maps_result, city),
         stated_pincode=reviewed.pincode if reviewed else None,
         rent=rent,

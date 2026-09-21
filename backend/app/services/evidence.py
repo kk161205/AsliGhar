@@ -31,11 +31,12 @@ logger = logging.getLogger(__name__)
 # also include search and category pages ("330 Flats & Apartments for Rent in
 # Dhaulpur") that show the photo as one thumbnail among many; those prove
 # nothing about a specific listing. Only shapes seen in real results are
-# listed — a site is trusted once its listing URLs have been observed.
+# listed — a site is trusted once its listing URLs have been observed. The
+# shape alone isn't enough (OLX also sells phones; Facebook posts can be about
+# anything), so a page must also read as property — see _classify_page.
 LISTING_PAGE_PATHS = {
     "olx.in": re.compile(r"/item/"),
     "magicbricks.com": re.compile(r"/propertyDetails/", re.IGNORECASE),
-    "facebook.com": re.compile(r"/marketplace/item/|/posts/"),
 }
 PRICE_MISMATCH_TOLERANCE_PCT = 10  # a listed rent is "different" beyond 10% of the submitted rent
 
@@ -93,7 +94,7 @@ class PageDetails(NamedTuple):
     title: str = ""
 
 
-def _page_key(link: str) -> str:
+def page_key(link: str) -> str:
     """Identifies a listing across the URL variants a site serves it under."""
     parsed = urlparse(link)
     host = (parsed.hostname or "").lower().removeprefix("www.")
@@ -105,9 +106,9 @@ def _page_key(link: str) -> str:
 
 def page_details(organic_results: list[dict], link: str) -> PageDetails | None:
     """What Google shows for this exact page, found among search results for its URL."""
-    key = _page_key(link)
+    key = page_key(link)
     for item in organic_results:
-        if _page_key(item.get("link", "")) != key:
+        if page_key(item.get("link", "")) != key:
             continue
         snippet = (item.get("snippet") or "").strip()
         figures = {
@@ -122,7 +123,7 @@ def page_details(organic_results: list[dict], link: str) -> PageDetails | None:
     return None
 
 
-def _listing_site(link: str) -> str | None:
+def listing_site(link: str) -> str | None:
     """The site a link is a single listing page of, or None.
 
     Taken from the link, not Lens's `source`, which is only a display name.
@@ -136,7 +137,7 @@ def _listing_site(link: str) -> str | None:
 
 
 _PROPERTY_WORDS = re.compile(
-    r"\b(bhk|flat|house|villa|apartment|bungalow|studio|room|pg|kothi|floor|independent|penthouse|duplex)\b"
+    r"\b(bhk|flats?|houses?|villas?|apartments?|bungalows?|studio|rooms?|pg|kothi|floor|independent|penthouse|duplex)\b"
 )
 _LISTING_INTENT = re.compile(r"\b(sale|resale|buy|rent|rental|lease|to let)\b")
 # Titles/URLs of search and category pages rather than one listing: a leading
@@ -148,7 +149,7 @@ _AGGREGATE_TITLE = re.compile(
 )
 # A run of 6+ digits not glued to a letter (so a geo code like "_g4059117" isn't
 # one), or a long hex id.
-_LISTING_ID = re.compile(r"(?<![A-Za-z])\d{6,}|[0-9a-f]{16,}", re.IGNORECASE)
+_LISTING_ID = re.compile(r"(?<![A-Za-z0-9])\d{6,}|[0-9a-f]{16,}", re.IGNORECASE)
 _AGGREGATE_QUERY = re.compile(r"filter=|searchparam|[?&]q=|/search", re.IGNORECASE)
 
 
@@ -172,9 +173,13 @@ def looks_like_listing_page(title: str, link: str) -> bool:
 
 
 def _classify_page(title: str, link: str) -> tuple[str, Tier] | None:
-    """(site, tier) if the page is a listing: proven for sites whose listing URLs are known."""
-    known = _listing_site(link)
-    if known:
+    """(site, tier) if the page is a property listing: proven for sites whose listing URLs are known.
+
+    Both routes require the page to read as property, so a phone ad on a
+    classifieds site or a mortgage post on social media is never a listing.
+    """
+    known = listing_site(link)
+    if known and _PROPERTY_WORDS.search(re.sub(r"[^a-z0-9]+", " ", page_text(title, link).lower())):
         return known, "proven"
     if looks_like_listing_page(title, link):
         host = (urlparse(link).hostname or "").lower().removeprefix("www.")
@@ -234,14 +239,103 @@ def _contradictions(
     return reasons, listed_price, listed_city, kind
 
 
+STOCK_PHOTO_DOMAINS = {
+    "shutterstock.com",
+    "alamy.com",
+    "istockphoto.com",
+    "gettyimages.com",
+    "gettyimages.in",
+    "freepik.com",
+    "unsplash.com",
+    "pexels.com",
+    "pixabay.com",
+    "dreamstime.com",
+    "depositphotos.com",
+    "123rf.com",
+    "stock.adobe.com",
+    "vecteezy.com",
+    "rawpixel.com",
+}
+
+
+def _stock_site(link: str) -> str | None:
+    """The stock-photo site a link points to, or None. Exact host match, no guessing."""
+    host = (urlparse(link).hostname or "").lower()
+    for domain in STOCK_PHOTO_DOMAINS:
+        if host == domain or host.endswith(f".{domain}"):
+            return domain
+    return None
+
+
+class _Candidate:
+    """One page that carries at least one of the submitted photos."""
+
+    def __init__(self, match: dict, domain: str, base_tier: Tier) -> None:
+        self.match = match
+        self.domain = domain
+        self.base_tier = base_tier
+        self.photo_indexes: set[int] = set()
+
+
+def _collect_candidates(
+    lens_results: list, own_listing_url: str | None
+) -> tuple[dict[str, _Candidate], dict[int, dict]]:
+    """Pages carrying the photos (one entry per page across all photos) and stock-photo hits per photo.
+
+    A page is one entry however many photos matched it and however many URL
+    variants the site serves it under.
+    """
+    candidates: dict[str, _Candidate] = {}
+    by_title: dict[tuple[str, str], str] = {}
+    stock: dict[int, dict] = {}
+    own_key = page_key(own_listing_url) if own_listing_url else None
+    for photo_index, result in enumerate(lens_results):
+        if isinstance(result, Exception):
+            logger.warning("google_lens failed for photo %s: %s", photo_index, result)
+            continue
+        # Only pages carrying the same image count — Lens's look-alike matches
+        # (other houses that merely resemble the photo) are never requested.
+        exact_matches = result.get("exact_matches", [])
+        for match in exact_matches:
+            link = match.get("link", "")
+            stock_site = _stock_site(link)
+            if stock_site:
+                stock.setdefault(photo_index, {**match, "domain": stock_site})
+                continue
+            classified = _classify_page(match.get("title", ""), link)
+            if classified is None:
+                continue
+            domain, tier = classified
+            key = page_key(link)
+            if key == own_key:
+                continue
+            key = by_title.setdefault((domain, match.get("title", "").strip().lower()), key)
+            candidate = candidates.setdefault(key, _Candidate(match, domain, tier))
+            candidate.photo_indexes.add(photo_index)
+        logger.info("google_lens photo %s: %s exact matches", photo_index, len(exact_matches))
+    return candidates, stock
+
+
 def extract_image_reuse(
     lens_results: list,
     submitted_price: int,
     submitted_city: str,
     pages: dict[str, PageDetails] | None = None,
+    *,
+    also_identified: dict[str, list[str]] | None = None,
+    own_listing_url: str | None = None,
 ) -> tuple[SignalResult, list[ImageMatchEvidence]]:
-    """`pages`: what Google shows for each flagged page (by link), to read its price from."""
+    """Find other listings of this house and report where they contradict the submission.
+
+    A page is the same house's listing when independent identifiers agree: two
+    of the submitted photos, or a photo plus the phone number or the description
+    text (`also_identified`: page key -> what else pointed at it). A single
+    photo on a page whose URL shape is known to be one listing also counts;
+    a single photo on any other listing-looking page is an indicator only.
+    Stock-photo sites are recognised by their exact domain.
+    """
     pages = pages or {}
+    also_identified = also_identified or {}
     failed_photos = sum(isinstance(result, Exception) for result in lens_results)
     if lens_results and failed_photos == len(lens_results):
         logger.warning("google_lens failed for all %s photos", failed_photos)
@@ -255,71 +349,66 @@ def extract_image_reuse(
             [],
         )
 
+    candidates, stock = _collect_candidates(lens_results, own_listing_url)
     contradicting: list[ImageMatchEvidence] = []
     consistent = 0
-    for photo_index, result in enumerate(lens_results):
-        if isinstance(result, Exception):
-            logger.warning("google_lens failed for photo %s: %s", photo_index, result)
+    for key, candidate in candidates.items():
+        match = candidate.match
+        link = match.get("link", "")
+        page = pages.get(link)
+        reasons, listed_price, listed_city, kind = _contradictions(match, submitted_price, submitted_city, page)
+        if not reasons:
+            consistent += 1
             continue
-        # Only pages carrying the same image count — Lens's look-alike matches
-        # (other houses that merely resemble the photo) are never requested.
-        exact_matches = result.get("exact_matches", [])
-        seen_listings: set[tuple[str, str]] = set()
-        listing_pages = 0
-        for match in exact_matches:
-            link = match.get("link", "")
-            classified = _classify_page(match.get("title", ""), link)
-            if classified is None:
-                continue
-            domain, tier = classified
-            # The same listing is served under several URLs (language prefixes).
-            listing_key = (domain, match.get("title", "").strip().lower())
-            if listing_key in seen_listings:
-                continue
-            seen_listings.add(listing_key)
-            listing_pages += 1
-            page = pages.get(link)
-            reasons, listed_price, listed_city, kind = _contradictions(match, submitted_price, submitted_city, page)
-            if not reasons:
-                consistent += 1
-                continue
-            contradicting.append(
-                ImageMatchEvidence(
-                    photo_index=photo_index,
-                    source_domain=domain,
-                    source_url=link,
-                    source_title=match.get("title", ""),
-                    listed_price=listed_price,
-                    submitted_price=submitted_price,
-                    listed_city=listed_city,
-                    submitted_city=submitted_city,
-                    reasons=reasons,
-                    listing_type=kind,
-                    source_snippet=page.snippet if page else None,
-                    tier=tier,
-                )
+        matched_by = [f"photo {index + 1}" for index in sorted(candidate.photo_indexes)] + also_identified.get(key, [])
+        tier: Tier = "proven" if candidate.base_tier == "proven" or len(matched_by) >= 2 else "indicator"
+        contradicting.append(
+            ImageMatchEvidence(
+                photo_index=min(candidate.photo_indexes),
+                photo_indexes=sorted(candidate.photo_indexes),
+                source_domain=candidate.domain,
+                source_url=link,
+                source_title=match.get("title", ""),
+                listed_price=listed_price,
+                submitted_price=submitted_price,
+                listed_city=listed_city,
+                submitted_city=submitted_city,
+                reasons=reasons,
+                listing_type=kind,
+                source_snippet=page.snippet if page else None,
+                tier=tier,
+                matched_by=matched_by,
             )
-        logger.info(
-            "google_lens photo %s: %s exact matches, %s of them single listing pages",
-            photo_index,
-            len(exact_matches),
-            listing_pages,
+        )
+    for photo_index, match in stock.items():
+        contradicting.append(
+            ImageMatchEvidence(
+                photo_index=photo_index,
+                photo_indexes=[photo_index],
+                source_domain=match["domain"],
+                source_url=match.get("link", ""),
+                source_title=match.get("title", ""),
+                submitted_price=submitted_price,
+                submitted_city=submitted_city,
+                reasons=[f"{match['domain']} is a stock-photo site, so this is not a photo of one particular home."],
+                tier="proven",
+                matched_by=[f"photo {photo_index + 1}"],
+            )
         )
 
     checked = len(lens_results) - failed_photos
-    photos_with_matches = len({item.photo_index for item in contradicting})
+    contradicted = {index for item in contradicting for index in item.photo_indexes}
+    proven_photos = {index for item in contradicting if item.tier == "proven" for index in item.photo_indexes}
     # Per photo, not per page: the same stolen photo on five pages is one photo.
-    proven_photos = {item.photo_index for item in contradicting if item.tier == "proven"}
-    indicator_only_photos = {item.photo_index for item in contradicting} - proven_photos
-    score = scoring.image_reuse_score(len(proven_photos), len(indicator_only_photos))
+    score = scoring.image_reuse_score(len(proven_photos), len(contradicted - proven_photos))
     finding = (
-        f"{photos_with_matches} of {checked} photos appear on other property listings "
-        "that contradict this one."
+        f"{len(contradicted)} of {checked} photos appear on other listings or sites "
+        "in a way that contradicts this one."
         if contradicting
-        else "The photos weren't found on any other property listing that contradicts this one."
+        else "The photos weren't found on any other listing that contradicts this one."
     )
     if consistent:
-        finding += f" {consistent} other property listing(s) show the same photo without contradicting it."
+        finding += f" {consistent} other listing(s) show the same photo without contradicting it."
     if failed_photos:
         finding += f" {failed_photos} photo(s) couldn't be checked."
     return (

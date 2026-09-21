@@ -53,7 +53,7 @@ def test_the_same_photo_on_a_matching_rental_is_not_evidence() -> None:
 
     assert matches == []
     assert signal.score == 0
-    assert "1 other property listing(s) show the same photo without contradicting it" in signal.finding
+    assert "1 other listing(s) show the same photo without contradicting it" in signal.finding
 
 
 def test_a_rental_in_another_city_is_evidence_naming_that_city() -> None:
@@ -157,7 +157,7 @@ def test_a_real_listing_of_the_same_home_is_consistent_not_contradictory() -> No
     signal, matches = _image_reuse(_lens(real_listing), price=15_000)
 
     assert matches == []
-    assert "1 other property listing(s) show the same photo without contradicting it" in signal.finding
+    assert "1 other listing(s) show the same photo without contradicting it" in signal.finding
 
 
 def test_pages_that_are_not_property_listings_are_ignored() -> None:
@@ -233,7 +233,6 @@ def test_looks_like_listing_page(title: str, link: str, expected: bool) -> None:
     "link",
     [
         "https://www.olx.in/en-in/item/for-sale-x",
-        "https://m.facebook.com/marketplace/item/for-sale-x",
         "https://www.magicbricks.com/propertyDetails/3-BHK-Villa-FOR-Sale-Chennai&id=1",
         "https://www.facebook.com/groups/658002432047676/posts/1426067125241199/",
     ],
@@ -566,3 +565,39 @@ def test_a_failed_search_with_too_little_stored_is_still_unavailable() -> None:
     )
     assert signal.status == "unavailable"
     assert "didn't respond" in signal.finding
+
+
+# --- real Facebook posts that carried a stock photo: none of them is a property listing ---
+
+
+@pytest.mark.parametrize(
+    "title, link",
+    [
+        ("How to improve home energy efficiency and lower bills - Facebook", "https://www.facebook.com/entergy/posts/a-home-energy-audit-can-help-determine-your-homes-energy-performance"),
+        ("Sober living tiny home community development - Facebook", "https://www.facebook.com/groups/guardiansofrecovery/posts/1153464549447629/"),
+        ("Mortgage advisor services for home buyers - Facebook", "https://www.facebook.com/groups/fthomebuyers/posts/1893489557896176/"),
+        ("What does a mortgage advisor do in the home buying process?", "https://www.facebook.com/groups/kiwifirsthomebuyers/posts/7932479020105723/"),
+    ],
+)
+def test_a_facebook_post_that_is_not_about_a_property_for_rent_or_sale_is_not_a_listing(title: str, link: str) -> None:
+    signal, matches = _image_reuse(_lens({"title": title, "link": link, "source": "Facebook"}), city="Pune")
+    assert matches == []
+    assert "other listing(s) show the same photo" not in signal.finding
+
+
+def test_a_facebook_group_post_advertising_a_flat_is_an_indicator_not_proof() -> None:
+    post = {
+        "title": "Available Good Quality 1 Bhk Flat On Rent in Mumbai - Facebook",
+        "link": "https://www.facebook.com/groups/747414650035066/posts/1828552098587977/",
+        "source": "Facebook",
+    }
+    _, matches = _image_reuse(_lens(post), city="Bengaluru")
+
+    assert matches[0].tier == "indicator"
+    assert matches[0].listed_city == "Mumbai"
+
+
+def test_a_non_property_item_on_a_known_classifieds_site_is_not_a_listing() -> None:
+    phone_ad = {"title": "iPhone 13 for sale in Pune", "link": "https://www.olx.in/item/iphone-13-for-sale-iid-99887766", "source": "OLX"}
+    _, matches = _image_reuse(_lens(phone_ad), city="Bengaluru")
+    assert matches == []

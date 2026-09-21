@@ -89,3 +89,39 @@ def red_flags(description: str | None) -> list[Insight]:
         if len(insights) == MAX_FLAGS:
             break
     return insights
+
+
+# --- identifiers taken from the description ---------------------------------------------
+
+MIN_PHRASE_WORDS = 9
+MAX_PHRASE_WORDS = 14
+_MOBILE_IN_TEXT = re.compile(r"(?<!\d)(?:\+?91[\s\-]?|0)?([6-9]\d{4}[\s\-]?\d{5})(?!\d)")
+_SENTENCE_BREAK = re.compile(r"[.!?;•|\n]+")
+
+
+def phones_in(description: str | None) -> list[str]:
+    """Indian mobile numbers written in the description, as 10 digits, in order of appearance."""
+    found: list[str] = []
+    for match in _MOBILE_IN_TEXT.finditer(description or ""):
+        digits = re.sub(r"[\s\-]", "", match.group(1))
+        if digits not in found:
+            found.append(digits)
+    return found
+
+
+def distinctive_phrase(description: str | None) -> str | None:
+    """A run of the description's own words long enough to search for as an exact phrase.
+
+    The longest sentence with at least MIN_PHRASE_WORDS words, cut to
+    MAX_PHRASE_WORDS, ignoring sentences that carry a phone number or a link.
+    A phrase this long is unlikely to match another page by chance; it can
+    still be template wording that brokers reuse, so a hit is only an indicator.
+    """
+    best: list[str] = []
+    for sentence in _SENTENCE_BREAK.split(description or ""):
+        if re.search(r"\d{8,}|https?://|www\.", re.sub(r"[\s\-]", "", sentence)):
+            continue
+        words = re.sub(r'["“”]', "", sentence).split()
+        if len(words) >= MIN_PHRASE_WORDS and len(words) > len(best):
+            best = words
+    return " ".join(best[:MAX_PHRASE_WORDS]) if best else None
