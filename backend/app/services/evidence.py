@@ -86,6 +86,10 @@ ListingType = Literal["sale", "rent"]
 # Not range-checked: a sale price is far above any monthly rent.
 LISTING_PRICE_PATTERN = re.compile(r"(?:₹|rs\.?)\s?([\d,]{4,})", re.IGNORECASE)
 MAX_PAGE_SNIPPET_CHARS = 200
+_PRICE_RANGE_HINT = re.compile(
+    r"price range|starting (?:from|at)|starts? (?:from|at)|\bfrom\s*(?:₹|rs)|(?:₹|rs\.?)\s?[\d,]+\s*(?:-|–|to)\s*(?:₹|rs)|crores?\b|lakhs?\b|\blacs?\b",
+    re.IGNORECASE,
+)
 
 
 class PageDetails(NamedTuple):
@@ -111,12 +115,12 @@ def page_details(organic_results: list[dict], link: str) -> PageDetails | None:
         if page_key(item.get("link", "")) != key:
             continue
         snippet = (item.get("snippet") or "").strip()
-        figures = {
-            int(digits.replace(",", ""))
-            for digits in LISTING_PRICE_PATTERN.findall(f"{item.get('title', '')} {snippet}")
-        }
+        text = f"{item.get('title', '')} {snippet}"
+        figures = {int(digits.replace(",", "")) for digits in LISTING_PRICE_PATTERN.findall(text)}
+        # A range or a bound ("price range of ₹1000 - ₹5 Crores") isn't this page's price.
+        single_price = len(figures) == 1 and not _PRICE_RANGE_HINT.search(text)
         return PageDetails(
-            price=next(iter(figures)) if len(figures) == 1 else None,
+            price=next(iter(figures)) if single_price else None,
             snippet=snippet[:MAX_PAGE_SNIPPET_CHARS] or None,
             title=item.get("title", ""),
         )
@@ -179,7 +183,12 @@ def _classify_page(title: str, link: str) -> tuple[str, Tier] | None:
     classifieds site or a mortgage post on social media is never a listing.
     """
     known = listing_site(link)
-    if known and _PROPERTY_WORDS.search(re.sub(r"[^a-z0-9]+", " ", page_text(title, link).lower())):
+    # A category-style title beats the URL shape: Google shows some OLX /item/
+    # URLs with a category title and text ("1925 Flats & Apartments for Rent in
+    # Kolkha"), which is no longer one listing.
+    if known and not _AGGREGATE_TITLE.search(title) and _PROPERTY_WORDS.search(
+        re.sub(r"[^a-z0-9]+", " ", page_text(title, link).lower())
+    ):
         return known, "proven"
     if looks_like_listing_page(title, link):
         host = (urlparse(link).hostname or "").lower().removeprefix("www.")
@@ -223,6 +232,8 @@ def _contradictions(
     title, link = match.get("title", ""), match.get("link", "")
     listed_price = (match.get("price") or {}).get("extracted_value") or (page.price if page else None)
     kind = listing_type(title, link)
+    if kind != "sale" and listed_price is not None and not MIN_MONTHLY_RENT <= listed_price <= MAX_MONTHLY_RENT:
+        listed_price = None  # not a plausible monthly rent, so not read as this page's rent
     reasons: list[str] = []
     if kind == "sale":
         shown = f" It shows {inr(listed_price)}." if listed_price else ""

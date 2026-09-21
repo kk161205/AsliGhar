@@ -601,3 +601,39 @@ def test_a_non_property_item_on_a_known_classifieds_site_is_not_a_listing() -> N
     phone_ad = {"title": "iPhone 13 for sale in Pune", "link": "https://www.olx.in/item/iphone-13-for-sale-iid-99887766", "source": "OLX"}
     _, matches = _image_reuse(_lens(phone_ad), city="Bengaluru")
     assert matches == []
+
+
+# --- real OLX /item/ URL that Google shows with a category title and text ---------------------
+
+KOLKHA_URL = "https://www.olx.in/item/for-rent-houses-apartments-c1723-2-bhk-houses-villas-1025-sq-ft-in-kolkha-agra-iid-1834835993"
+KOLKHA_TITLE = "1925 Flats & Apartments for Rent in Kolkha - OLX India"
+KOLKHA_SNIPPET = (
+    "Explore flats for rent in Kolkha in the price range of ₹1000 - ₹5 Crores. "
+    "OLX provides you options ranging from 1-5 BHK flats for rent in Kolkha. You can ..."
+)
+
+
+def test_an_item_url_with_a_category_title_is_not_a_listing() -> None:
+    signal, matches = _image_reuse(_lens(_match(KOLKHA_TITLE, KOLKHA_URL)), city="Bengaluru")
+    assert matches == []
+    assert signal.score == 0
+
+
+def test_a_price_range_in_the_snippet_is_not_read_as_the_pages_price() -> None:
+    results = [{"link": KOLKHA_URL, "title": KOLKHA_TITLE, "snippet": KOLKHA_SNIPPET}]
+    assert evidence.page_details(results, KOLKHA_URL).price is None
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    ["Flats from ₹8,000 in Agra", "Starting at ₹ 12,000 a month", "₹ 10,000 to ₹ 20,000 per month", "House for ₹ 1.2 Crore"],
+)
+def test_bounds_ranges_and_crore_prices_are_not_a_single_price(snippet: str) -> None:
+    results = [{"link": OLX_SALE_URL, "title": "House", "snippet": snippet}]
+    assert evidence.page_details(results, OLX_SALE_URL).price is None
+
+
+def test_a_rent_that_is_not_a_plausible_monthly_figure_is_not_shown_as_the_pages_rent() -> None:
+    lens = _lens(_match("2BHK flat for rent in Agra", "https://www.olx.in/item/for-rent-agra-1", price=1_000))
+    _, matches = _image_reuse(lens, price=15_000, city="Agra")
+    assert matches == []
