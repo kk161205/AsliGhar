@@ -637,3 +637,41 @@ def test_a_rent_that_is_not_a_plausible_monthly_figure_is_not_shown_as_the_pages
     lens = _lens(_match("2BHK flat for rent in Agra", "https://www.olx.in/item/for-rent-agra-1", price=1_000))
     _, matches = _image_reuse(lens, price=15_000, city="Agra")
     assert matches == []
+
+
+# --- 99acres and housing.com: real single-listing vs category URLs -----------------------
+
+@pytest.mark.parametrize(
+    "title, link, expected_tier",
+    [
+        (
+            "Flat for Rent in Vario Homes Hebbal, Bangalore - 99acres.com",
+            "https://www.99acres.com/2-bhk-bedroom-apartment-flat-for-rent-in-vario-homes-hebbal-bangalore-north-1168-sqft-spid-W94480788",
+            "proven",
+        ),
+        (
+            "3 BHK Flat for rent in Powai, Mumbai - 1200 Sqft | Property ID",
+            "https://housing.com/rent/20057298-1200-sqft-3-bhk-apartment-on-rent-in-powai-mumbai",
+            "proven",
+        ),
+    ],
+)
+def test_a_real_99acres_or_housing_single_listing_is_proven(title: str, link: str, expected_tier: str) -> None:
+    _, matches = _image_reuse(_lens({"title": title, "link": link, "source": "Some Site"}), city="Chennai")
+    assert matches[0].tier == expected_tier
+    assert matches[0].source_domain in ("99acres.com", "housing.com")
+
+
+@pytest.mark.parametrize(
+    "title, link",
+    [
+        ("2 BHK Semi Furnished Flats for rent in Hebbal, Bangalore - 99acres.com", "https://www.99acres.com/2-bhk-semi-furnished-flats-for-rent-in-hebbal-bangalore-north-ffid"),
+        ("2 BHK Flats for Rent in Kharadi, Pune - 99acres.com", "https://www.99acres.com/2-bhk-flats-for-rent-in-kharadi-pune-ffid"),
+        ("Flats for Rent in JVLR-Powai, Mumbai - Housing", "https://housing.com/rent/flats-for-rent-in-jvlr-powai-mumbai-P2ojfz8petk12yx22"),
+        ("Flats for rent in Maharashtra | Housing.com", "https://housing.com/rent/3bhk-flat-in-maharashtra-C8M1P3mm15uxln8blpmn0?page=409"),
+        ("10 Flats for rent in Gurukrupa Gyanam, Powai, Mumbai - Housing", "https://housing.com/rent-gurukrupa-gyanam-for-rent-in-powai-mumbai-rpid-AG6mu6AH0"),
+    ],
+)
+def test_a_real_99acres_or_housing_category_or_project_page_is_not_a_listing(title: str, link: str) -> None:
+    _, matches = _image_reuse(_lens({"title": title, "link": link, "source": "Some Site"}), city="Chennai")
+    assert matches == []

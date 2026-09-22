@@ -164,7 +164,10 @@ export default function UploadForm({
             <button type="button" onClick={() => fileInputRef.current?.click()}>
               Choose files
             </button>
-            <p className="upload-form__hint">1–5 photos, JPEG or PNG, up to 5MB each</p>
+            <p className="upload-form__hint">
+              1–5 photos, JPEG or PNG, up to 5MB each. Two or more of the same room let us confirm
+              a match with certainty, not just a hint.
+            </p>
           </>
         ) : (
           <>
@@ -196,7 +199,10 @@ export default function UploadForm({
               )}
             </ul>
             <p className="upload-form__hint">
-              {photos.length} of {MAX_PHOTOS} photos added, JPEG or PNG, up to 5MB each
+              {photos.length} of {MAX_PHOTOS} photos added, JPEG or PNG, up to 5MB each.{" "}
+              {photos.length === 1
+                ? "Add one more of the same room to confirm a match with certainty."
+                : ""}
             </p>
           </>
         )}
@@ -295,7 +301,6 @@ export default function UploadForm({
       </div>
       <p className="upload-form__hint">
         A link lets us read the listing itself; a number lets us look for it on other listings.
-        Adding several photos of the same home helps us confirm a match.
       </p>
 
       <label className="upload-form__field">

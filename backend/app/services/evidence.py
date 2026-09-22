@@ -37,6 +37,16 @@ logger = logging.getLogger(__name__)
 LISTING_PAGE_PATHS = {
     "olx.in": re.compile(r"/item/"),
     "magicbricks.com": re.compile(r"/propertyDetails/", re.IGNORECASE),
+    # 99acres gives one listing a "-spid-<id>" suffix; its category pages end
+    # in "-ffid" with no id at all (confirmed live: "...-hebbal-bangalore
+    # -north-1168-sqft-spid-W94480788" vs "...-in-hebbal-bangalore-north-ffid").
+    "99acres.com": re.compile(r"-spid-[A-Za-z0-9]+", re.IGNORECASE),
+    # Housing.com puts a numeric property id right after "/rent/" for one
+    # listing; its category/project pages start with the locality slug or a
+    # non-numeric id instead (confirmed live: "/rent/20057298-1200-sqft-3-bhk
+    # -apartment..." vs "/rent/flats-for-rent-in-..." and "/rent/3bhk-flat-in
+    # -maharashtra-C8M1P3mm...").
+    "housing.com": re.compile(r"^/rent/\d+-"),
 }
 PRICE_MISMATCH_TOLERANCE_PCT = 10  # a listed rent is "different" beyond 10% of the submitted rent
 
@@ -144,11 +154,16 @@ _PROPERTY_WORDS = re.compile(
     r"\b(bhk|flats?|houses?|villas?|apartments?|bungalows?|studio|rooms?|pg|kothi|floor|independent|penthouse|duplex)\b"
 )
 _LISTING_INTENT = re.compile(r"\b(sale|resale|buy|rent|rental|lease|to let)\b")
-# Titles/URLs of search and category pages rather than one listing: a leading
-# count ("330 Flats..."), "Page 2", a plural property noun followed by "in"/"near"/
-# "for", or search parameters in the URL.
+# Titles of search and category pages rather than one listing: "Page 2", or a
+# *plural* property noun followed later by "in"/"near"/"for" ("330 Flats &
+# Apartments for Rent in Dhaulpur", "Flats for Rent in JVLR-Powai"). Not a
+# leading count on its own — real listing titles routinely open with the
+# bedroom count ("3 BHK Flat for rent..."), which a stricter earlier version
+# of this pattern wrongly matched (confirmed live: it silently excluded a real
+# Housing.com listing). Every real aggregate title seen so far also matches
+# the plural-noun pattern anyway, so nothing is lost by dropping it.
 _AGGREGATE_TITLE = re.compile(
-    r"^\s*\d[\d,+]*\s|\bpage \d+\b|\b(?:properties|flats|houses|apartments|villas|rooms|homes|bungalows)\b.*\b(?:in|near|for)\b",
+    r"\bpage \d+\b|\b(?:properties|flats|houses|apartments|villas|rooms|homes|bungalows)\b.*\b(?:in|near|for)\b",
     re.IGNORECASE,
 )
 # A run of 6+ digits not glued to a letter (so a geo code like "_g4059117" isn't
