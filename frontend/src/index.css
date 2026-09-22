@@ -113,16 +113,17 @@ button {
   color: var(--terracotta-600);
 }
 
-.site-nav__logout {
+.site-nav__button {
   background: none;
   border: none;
   padding: 0;
   font-family: inherit;
   font-size: var(--text-sm);
   color: var(--ink-900);
+  cursor: pointer;
 }
 
-.site-nav__logout:hover {
+.site-nav__button:hover {
   color: var(--terracotta-600);
 }
 

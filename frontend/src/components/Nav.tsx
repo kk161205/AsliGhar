@@ -17,6 +17,9 @@ export default function Nav() {
   // /signup (each already has its own submit action plus a footer link to
   // the other), so it isn't repeated on a page that already offers it.
   const showSignup = pathname !== "/" && pathname !== "/login" && pathname !== "/signup";
+  // On the How it works page itself, a link back to the same page is useless
+  // — a "Back" button (to wherever the visitor actually came from) replaces it.
+  const isHowItWorks = pathname === "/how-it-works";
 
   return (
     <header className="site-nav">
@@ -24,12 +27,18 @@ export default function Nav() {
         AsliGhar
       </Link>
       <nav>
-        <Link to="/how-it-works">How it works</Link>
+        {isHowItWorks ? (
+          <button type="button" className="site-nav__button" onClick={() => navigate(-1)}>
+            Back
+          </button>
+        ) : (
+          <Link to="/how-it-works">How it works</Link>
+        )}
         {state.status === "authenticated" && (
           <>
             <Link to="/dashboard">Dashboard</Link>
             <Link to="/scan">Check a listing</Link>
-            <button type="button" className="site-nav__logout" onClick={handleLogout}>
+            <button type="button" className="site-nav__button" onClick={handleLogout}>
               Log out
             </button>
           </>
