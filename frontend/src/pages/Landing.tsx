@@ -45,7 +45,6 @@ export default function Landing() {
               <p>How far is the rent from comparable listings in that locality?</p>
             </div>
           </div>
-          <Link to="/how-it-works">Read more about how it works</Link>
         </section>
       </main>
     </>
