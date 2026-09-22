@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { ApiError, listScans } from "../api/client";
 import type { ScanSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import IconBadge from "../components/IconBadge";
 import Nav from "../components/Nav";
 import RecentScansList from "../components/RecentScansList";
 
@@ -69,17 +70,23 @@ export default function Dashboard() {
           <>
             <div className="stat-row">
               <div className="stat-card">
-                <ScanSearch aria-hidden="true" size={20} strokeWidth={1.75} />
+                <IconBadge>
+                  <ScanSearch aria-hidden="true" size={20} strokeWidth={1.75} />
+                </IconBadge>
                 <p className="stat-card__value mono">{state.scans.length}</p>
                 <p className="stat-card__label">Recent scans</p>
               </div>
               <div className={`stat-card${flaggedCount(state.scans) > 0 ? " stat-card--flagged" : ""}`}>
-                <TriangleAlert aria-hidden="true" size={20} strokeWidth={1.75} />
+                <IconBadge tone={flaggedCount(state.scans) > 0 ? "rust" : "terracotta"}>
+                  <TriangleAlert aria-hidden="true" size={20} strokeWidth={1.75} />
+                </IconBadge>
                 <p className="stat-card__value mono">{flaggedCount(state.scans)}</p>
                 <p className="stat-card__label">High / Severe flagged</p>
               </div>
               <div className="stat-card">
-                <Gauge aria-hidden="true" size={20} strokeWidth={1.75} />
+                <IconBadge>
+                  <Gauge aria-hidden="true" size={20} strokeWidth={1.75} />
+                </IconBadge>
                 <p className="stat-card__value mono">
                   {state.scans.length > 0 ? averageScore(state.scans) : "—"}
                 </p>

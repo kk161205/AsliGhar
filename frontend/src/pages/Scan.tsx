@@ -1,4 +1,5 @@
 import { Image, IndianRupee, MapPin } from "lucide-react";
+import IconBadge from "../components/IconBadge";
 import Nav from "../components/Nav";
 import ScanFlow from "../components/ScanFlow";
 
@@ -22,7 +23,9 @@ export default function Scan() {
             <h2>What we check</h2>
             <ul className="check-list">
               <li>
-                <Image aria-hidden="true" size={20} strokeWidth={1.75} />
+                <IconBadge>
+                  <Image aria-hidden="true" size={20} strokeWidth={1.75} />
+                </IconBadge>
                 <div>
                   <p className="check-list__title">Image reuse</p>
                   <p className="check-list__body">
@@ -31,7 +34,9 @@ export default function Scan() {
                 </div>
               </li>
               <li>
-                <MapPin aria-hidden="true" size={20} strokeWidth={1.75} />
+                <IconBadge>
+                  <MapPin aria-hidden="true" size={20} strokeWidth={1.75} />
+                </IconBadge>
                 <div>
                   <p className="check-list__title">Address plausibility</p>
                   <p className="check-list__body">
@@ -40,7 +45,9 @@ export default function Scan() {
                 </div>
               </li>
               <li>
-                <IndianRupee aria-hidden="true" size={20} strokeWidth={1.75} />
+                <IconBadge>
+                  <IndianRupee aria-hidden="true" size={20} strokeWidth={1.75} />
+                </IconBadge>
                 <div>
                   <p className="check-list__title">Price sanity</p>
                   <p className="check-list__body">
