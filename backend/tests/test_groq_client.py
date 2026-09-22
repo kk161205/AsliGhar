@@ -107,3 +107,48 @@ def test_sanitizer_removes_citations_that_point_at_internal_structure() -> None:
 def test_sanitizer_rewrites_the_internal_image_match_label() -> None:
     assert "photo match" in groq_client._sanitize_summary("One image_match shows the photo elsewhere.")
     assert "image_match" not in groq_client._sanitize_summary("One image_match shows the photo elsewhere.")
+
+
+class _RaisingCompletions:
+    async def create(self, **_kwargs):
+        raise RuntimeError("connection reset by peer")
+
+
+class _RaisingChat:
+    def __init__(self) -> None:
+        self.completions = _RaisingCompletions()
+
+
+class _RaisingAsyncGroq:
+    """Stands in for AsyncGroq and raises something that is NOT a GroqError.
+
+    Regression coverage for a real production 500: these calls are optional
+    (a scan degrades without a summary/without the reviewer), but only
+    GroqError/AuthenticationError/asyncio.TimeoutError were ever caught, so
+    any other exception the SDK didn't wrap crashed the whole /scan request.
+    """
+
+    def __init__(self, api_key: str) -> None:
+        self.chat = _RaisingChat()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc_info):
+        return False
+
+
+async def test_summarize_evidence_degrades_on_an_unexpected_exception_type(monkeypatch) -> None:
+    monkeypatch.setattr(groq_client, "AsyncGroq", _RaisingAsyncGroq)
+    summary = await groq_client.summarize_evidence(
+        evidence_json=SAMPLE_EVIDENCE, risk_score=35, risk_band="Moderate"
+    )
+    assert summary is None
+
+
+async def test_json_completion_degrades_on_an_unexpected_exception_type(monkeypatch) -> None:
+    monkeypatch.setattr(groq_client, "AsyncGroq", _RaisingAsyncGroq)
+    result = await groq_client.json_completion(
+        "some-model", "system", "user", timeout_seconds=4.0
+    )
+    assert result is None

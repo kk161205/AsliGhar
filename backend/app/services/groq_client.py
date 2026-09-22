@@ -153,7 +153,11 @@ async def json_completion(
                 ),
                 timeout=timeout_seconds,
             )
-    except (GroqError, asyncio.TimeoutError) as exc:
+    except Exception as exc:
+        # Any failure here, not just the Groq SDK's own exception types: this
+        # call improves a scan, it is never required for it, and letting an
+        # unexpected exception (a transient connection error the SDK doesn't
+        # wrap, for instance) propagate would crash the whole /scan request.
         logger.warning("Groq JSON call failed on model=%s: %s", model, exc)
         return None
     parsed = _parse_json_object(completion.choices[0].message.content or "")
@@ -223,7 +227,12 @@ async def summarize_evidence(
                 # would just waste a round trip on the same error.
                 logger.error("Groq authentication failed, not retrying: %s", exc)
                 return None
-            except (GroqError, asyncio.TimeoutError) as exc:
+            except Exception as exc:
+                # Any failure here, not just the Groq SDK's own exception types
+                # (GroqError/TimeoutError): the summary is optional (see
+                # ScanResponse.ai_summary), so an unexpected exception must
+                # degrade to the next model rather than crash the whole /scan
+                # request with no JSON body.
                 logger.warning("Groq call failed on model=%s, trying next model: %s", model, exc)
 
     logger.error("Groq summarization failed: primary and fallback models both unavailable")
