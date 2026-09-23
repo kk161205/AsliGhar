@@ -7,11 +7,6 @@ export default function HouseIllustration() {
         {/* ground shadow */}
         <ellipse cx="150" cy="298" rx="78" ry="12" fill="rgba(43,36,32,0.10)" />
 
-        {/* pointer lines */}
-        <line className="pointer-line line-1" x1="212" y1="210" x2="255" y2="150" />
-        <line className="pointer-line line-2" x1="97" y1="219" x2="55" y2="185" />
-        <line className="pointer-line line-3" x1="185" y1="248" x2="222" y2="255" />
-
         {/* roof */}
         <polygon
           points="81,186 150,226 185,166 115,126"
@@ -65,6 +60,17 @@ export default function HouseIllustration() {
           stroke="#5A3324"
           strokeWidth="1.2"
         />
+
+        {/* pointer lines — they may extend outside the viewBox (svg has
+            overflow: visible) and end just under each badge's edge */}
+        <line className="pointer-line line-1" x1="185" y1="166" x2="218" y2="57" />
+        <line className="pointer-line line-2" x1="103" y1="219" x2="24" y2="176" />
+        <line className="pointer-line line-3" x1="185" y1="252" x2="262" y2="268" />
+
+        {/* anchor dots */}
+        <circle className="anchor-dot" cx="185" cy="166" r="3.5" />
+        <circle className="anchor-dot" cx="103" cy="219" r="3.5" />
+        <circle className="anchor-dot" cx="185" cy="252" r="3.5" />
       </svg>
 
       <div className="badge badge-1">Image reused elsewhere</div>

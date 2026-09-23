@@ -51,16 +51,26 @@
 .badge.result {
   background: #c1502e;
   font-weight: 600;
-  white-space: normal;
+  white-space: nowrap; /* was "normal", which made it wrap onto 2 lines */
   text-align: center;
 }
 .badge.result::before {
   background: #f7f2ea;
 }
 
-.badge-1 { top: 6px;   left: 226px; animation-delay: 0.15s, 0.65s; }
-.badge-2 { top: 96px;  left: -8px;  animation-delay: 0.35s, 0.85s; }
-.badge-3 { top: 210px; left: 214px; animation-delay: 0.55s, 1.05s; }
+/* line-1 ends at (218, 57), rising from the roof peak.
+   The badge sits above-right; the line enters its bottom edge
+   ~36px in from the left. */
+.badge-1 { top: 35px;  left: 180px; animation-delay: 0.15s, 0.65s; }
+
+/* line-2 ends at (24, 176), rising up-left from the left window.
+   The badge sits up-left; the line enters its bottom edge near the
+   middle, and its right edge stays clear of the roof corner at (81, 186). */
+.badge-2 { top: 154px; left: -62px; animation-delay: 0.35s, 0.85s; }
+
+/* line-3 ends at (262, 268), dropping right from the door.
+   The badge sits to the right; the line enters its left edge. */
+.badge-3 { top: 254px; left: 256px; animation-delay: 0.55s, 1.05s; }
 
 .badge-result {
   top: 296px;
@@ -105,19 +115,10 @@
   .house-illustration { transform: scale(0.82); }
 }
 
-/* Above the hero's mobile stack (768px) but below where .page's own
-   max-width starts leaving slack in the margins (~1050px), the visual
-   column is capped at 380px and badge-1 runs past the viewport edge at
-   full size. Below 768px the hero stacks to full page width, which is
-   already wide enough, so this only needs to cover the gap in between. */
 @media (min-width: 769px) and (max-width: 1050px) {
   .house-illustration { transform: scale(0.82); }
 }
 
-/* badge-1 ("Image reused elsewhere") is the widest badge and the one that
-   sits furthest right; below ~420px the 0.82 scale above isn't enough to
-   keep it from running past the viewport edge, so phones need a couple
-   more steps down. */
 @media (max-width: 400px) {
   .house-illustration { transform: scale(0.7); }
 }
