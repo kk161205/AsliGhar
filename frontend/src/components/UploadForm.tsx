@@ -8,7 +8,7 @@ import type { CreateScanInput } from "../api/client";
 const MIN_PHOTOS = 1;
 const MAX_PHOTOS = 5;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
-const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png"]);
+const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MIN_REASON_CHARS = 10;
 const MAX_REASON_CHARS = 300;
 
@@ -48,7 +48,7 @@ function validatePhotos(photos: File[]): string | null {
   }
   for (const photo of photos) {
     if (!ALLOWED_PHOTO_TYPES.has(photo.type)) {
-      return `${photo.name} isn't a JPEG or PNG.`;
+      return `${photo.name} isn't a JPEG, PNG, or WebP.`;
     }
     if (photo.size > MAX_PHOTO_BYTES) {
       return `${photo.name} is over 5MB.`;
@@ -165,8 +165,8 @@ export default function UploadForm({
               Choose files
             </button>
             <p className="upload-form__hint">
-              1–5 photos, JPEG or PNG, up to 5MB each. Two or more of the same room let us confirm
-              a match with certainty, not just a hint.
+              1–5 photos, JPEG, PNG, or WebP, up to 5MB each. Two or more of the same room let us
+              confirm a match with certainty, not just a hint.
             </p>
           </>
         ) : (
@@ -199,7 +199,7 @@ export default function UploadForm({
               )}
             </ul>
             <p className="upload-form__hint">
-              {photos.length} of {MAX_PHOTOS} photos added, JPEG or PNG, up to 5MB each.{" "}
+              {photos.length} of {MAX_PHOTOS} photos added, JPEG, PNG, or WebP, up to 5MB each.{" "}
               {photos.length === 1
                 ? "Add one more of the same room to confirm a match with certainty."
                 : ""}
@@ -209,7 +209,7 @@ export default function UploadForm({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png"
+          accept="image/jpeg,image/png,image/webp"
           multiple
           onChange={handleFileInput}
           hidden

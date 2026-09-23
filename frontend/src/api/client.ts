@@ -80,6 +80,16 @@ export async function listScans(): Promise<ScanSummary[]> {
   return (await response.json()) as ScanSummary[];
 }
 
+export async function deleteScan(scanId: string): Promise<void> {
+  const response = await fetch(`/api/v1/scans/${encodeURIComponent(scanId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",

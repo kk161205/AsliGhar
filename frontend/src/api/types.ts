@@ -37,7 +37,9 @@ export interface ImageMatchEvidence {
   submitted_price: number;
   listed_city: string | null;
   submitted_city: string;
-  // Each reason is read from the page's own title, URL or price.
+  // Each reason is read from the page's own title, URL or price. Empty
+  // (never absent — the backend always fills these in) on scans stored
+  // before each item carried its own reasons.
   reasons: string[];
   listing_type: "sale" | "rent" | null;
   source_snippet: string | null;

@@ -355,6 +355,16 @@ def test_residential_category_is_valid() -> None:
     assert _address(maps_result).score == scoring.ADDRESS_VALID_SCORE
 
 
+def test_a_type_field_returned_as_a_list_is_handled() -> None:
+    # Real (confirmed live, crashed with AttributeError: 'list' object has no
+    # attribute 'lower'): SerpApi's google_maps engine doesn't always return
+    # "type" as a single string like the rest of this module assumes.
+    maps_result = {"local_results": [{"title": "Prestige Pinewood", "type": ["Condominium complex"]}]}
+    signal = _address(maps_result)
+    assert signal.score == scoring.ADDRESS_VALID_SCORE
+    assert "Condominium complex" in signal.finding
+
+
 # --- price: computed only from listings that can be shown ---------------------------
 
 

@@ -1,12 +1,5 @@
 import type { RiskBand } from "../api/types";
 
-const BAND_COLOR: Record<RiskBand, string> = {
-  Low: "var(--moss-600)",
-  Moderate: "var(--amber-600)",
-  High: "var(--rust-700)",
-  Severe: "var(--rust-700)",
-};
-
 interface RiskGaugeProps {
   score: number;
   band: RiskBand;
@@ -29,8 +22,8 @@ export default function RiskGauge({ score, band }: RiskGaugeProps) {
         aria-label={`Risk score ${score} out of 100, ${band} risk`}
       >
         <div
-          className="risk-gauge__fill"
-          style={{ width: `${score}%`, backgroundColor: BAND_COLOR[band] }}
+          className={`risk-gauge__fill risk-gauge__fill--${band.toLowerCase()}`}
+          style={{ width: `${score}%` }}
         />
       </div>
     </div>

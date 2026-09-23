@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.auth import router as auth_router
 from app.api.scan import router as scan_router
+from app.core.config import get_settings
 from app.core.error_handling import log_unhandled_exception
 from app.core.health import check_dependencies
 from app.core.logging import configure_logging
@@ -41,7 +42,7 @@ app.add_exception_handler(Exception, log_unhandled_exception)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=get_settings().cors_origins(),
     allow_credentials=True,  # required for the session cookie to work cross-origin
     allow_methods=["*"],
     allow_headers=["*"],

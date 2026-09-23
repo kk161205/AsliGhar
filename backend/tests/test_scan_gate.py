@@ -8,7 +8,7 @@ from app.core.rate_limit import limiter
 from app.main import app
 from app.models.schemas import ScanResponse, ScanSignals, SignalResult
 
-PHOTO = ("photos", ("room.jpg", b"jpeg-bytes", "image/jpeg"))
+PHOTO = ("photos", ("room.jpg", b"\xff\xd8\xffjpeg-bytes", "image/jpeg"))
 
 
 @pytest.fixture(autouse=True)
@@ -145,4 +145,59 @@ def test_an_invalid_listing_link_is_refused_before_any_work(client, scan_calls, 
     response = _scan(client, 25_000, listing_url=url)
     assert response.status_code == 422
     assert "web address" in response.json()["detail"]
+    assert scan_calls == []
+
+
+# --- photo formats --------------------------------------------------------------------------
+
+
+def test_a_webp_photo_is_accepted(client, scan_calls) -> None:
+    webp_bytes = b"RIFF\x00\x00\x00\x00WEBPwebp-bytes"
+    webp_photo = ("photos", ("room.webp", webp_bytes, "image/webp"))
+    data = {"address": "Indiranagar", "city": "Bengaluru", "rent": "25000"}
+    response = client.post("/api/v1/scan", data=data, files=[webp_photo])
+
+    assert response.status_code == 200
+    assert scan_calls[0]["photos"][0][1] == ".webp"
+
+
+def test_an_unsupported_photo_format_is_refused_before_any_work(client, scan_calls) -> None:
+    gif_photo = ("photos", ("room.gif", b"gif-bytes", "image/gif"))
+    data = {"address": "Indiranagar", "city": "Bengaluru", "rent": "25000"}
+    response = client.post("/api/v1/scan", data=data, files=[gif_photo])
+
+    assert response.status_code == 422
+    assert "Unsupported photo type" in response.json()["detail"]
+
+
+def test_a_photo_whose_bytes_dont_match_its_declared_type_is_refused(client, scan_calls) -> None:
+    # Content-Type header says JPEG, but the bytes aren't a JPEG signature.
+    fake_photo = ("photos", ("room.jpg", b"not-actually-a-jpeg", "image/jpeg"))
+    data = {"address": "Indiranagar", "city": "Bengaluru", "rent": "25000"}
+    response = client.post("/api/v1/scan", data=data, files=[fake_photo])
+
+    assert response.status_code == 422
+    assert "isn't a valid image file" in response.json()["detail"]
+    assert scan_calls == []
+
+
+# --- photo count / size bounds ---------------------------------------------------------------
+
+
+def test_more_than_five_photos_is_refused_before_any_work(client, scan_calls) -> None:
+    data = {"address": "Indiranagar", "city": "Bengaluru", "rent": "25000"}
+    response = client.post("/api/v1/scan", data=data, files=[PHOTO] * 6)
+
+    assert response.status_code == 422
+    assert "between 1 and 5 photos" in response.json()["detail"]
+    assert scan_calls == []
+
+
+def test_an_oversized_photo_is_refused_before_any_work(client, scan_calls) -> None:
+    oversized = ("photos", ("room.jpg", b"\xff\xd8\xff" + b"x" * (5 * 1024 * 1024), "image/jpeg"))
+    data = {"address": "Indiranagar", "city": "Bengaluru", "rent": "25000"}
+    response = client.post("/api/v1/scan", data=data, files=[oversized])
+
+    assert response.status_code == 422
+    assert "exceeds 5MB" in response.json()["detail"]
     assert scan_calls == []

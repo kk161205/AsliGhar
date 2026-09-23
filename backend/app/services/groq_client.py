@@ -3,9 +3,10 @@ import json
 import logging
 import re
 
-from groq import AsyncGroq, AuthenticationError, GroqError
+from groq import AsyncGroq, AuthenticationError
 
 from app.core.config import get_settings
+from app.core.constants import MAX_DESCRIPTION_CHARS
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,6 @@ REASONING_EFFORT = "low"
 # timeout; this one didn't, so a hung Groq call could block /scan indefinitely
 # past the 10-15s the UI promises. 10s matches the spirit of those.
 REQUEST_TIMEOUT_SECONDS = 10.0
-# Keeps the prompt (and Groq token spend) bounded regardless of how long a
-# submitted listing description is; the summary only needs context, not the
-# full text verbatim.
-MAX_DESCRIPTION_CHARS = 500
 
 # Both maps below are a deterministic safety net, not a substitute for the
 # prompt instructions above — confirmed live that the model doesn't reliably

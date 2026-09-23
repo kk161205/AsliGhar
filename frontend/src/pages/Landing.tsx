@@ -1,51 +1,9 @@
 import { Image, IndianRupee, MapPin } from "lucide-react";
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import HouseIllustration from "../components/HouseIllustration";
 import IconBadge from "../components/IconBadge";
 import Nav from "../components/Nav";
-
-// A static, illustrative sample result — never wired to a real scan — filling
-// the hero's empty space so the value proposition is shown, not just described.
-function SampleScoreCard() {
-  return (
-    <div className="score-card" aria-hidden="true">
-      <p className="score-card__label">
-        <span className="score-card__dot" />
-        Sample scan result
-      </p>
-      <div className="score-card__band">
-        <span className="score-card__band-name">High risk</span>
-        <span className="score-card__score mono">62 / 100</span>
-      </div>
-      <div className="score-card__track">
-        <div className="score-card__fill" />
-      </div>
-      <div className="score-card__rows">
-        <div className="score-card__row">
-          <span className="score-card__row-name">
-            <Image size={15} strokeWidth={1.75} />
-            Image reuse
-          </span>
-          <span className="score-card__row-value">Proven match</span>
-        </div>
-        <div className="score-card__row">
-          <span className="score-card__row-name">
-            <IndianRupee size={15} strokeWidth={1.75} />
-            Price sanity
-          </span>
-          <span className="score-card__row-value">38% below median</span>
-        </div>
-        <div className="score-card__row">
-          <span className="score-card__row-name">
-            <MapPin size={15} strokeWidth={1.75} />
-            Address
-          </span>
-          <span className="score-card__row-value">Resolves fine</span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function Landing() {
   const { state } = useAuth();
@@ -73,7 +31,7 @@ export default function Landing() {
             </Link>
           </div>
           <div className="hero__visual">
-            <SampleScoreCard />
+            <HouseIllustration />
           </div>
         </section>
 

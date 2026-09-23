@@ -8,7 +8,20 @@ from slowapi.util import get_remote_address
 
 logger = logging.getLogger(__name__)
 
-limiter = Limiter(key_func=get_remote_address)
+
+def client_ip(request: Request) -> str:
+    """The real client IP, even behind a reverse proxy (Render's edge sets
+    X-Forwarded-For). request.client.host alone would be the proxy's own
+    address — every request would bucket together under one IP, defeating
+    the limit rather than enforcing it. Falls back to slowapi's default
+    when there's no such header (plain local dev, or no proxy in front)."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=client_ip)
 
 
 def log_rate_limit_exceeded(request: Request, exc: RateLimitExceeded) -> JSONResponse:
@@ -22,7 +35,7 @@ def log_rate_limit_exceeded(request: Request, exc: RateLimitExceeded) -> JSONRes
     # ApiErrorBody type actually reads — "error" was silently never parsed).
     logger.warning(
         "Rate limit exceeded: ip=%s path=%s limit=%s",
-        get_remote_address(request),
+        client_ip(request),
         request.url.path,
         exc.detail,
     )

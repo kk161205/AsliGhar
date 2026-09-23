@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     # does this need "none" (and cookie_secure=true, since SameSite=None
     # requires Secure).
     cookie_samesite: str = "lax"
+    # Comma-separated. The browser only ever reaches the API same-origin in
+    # both dev (Vite's /api proxy) and prod (Vercel's rewrite to Render), so
+    # this normally never matters — it's a fallback for anything that talks
+    # to the API directly, e.g. a local variant (127.0.0.1 vs localhost) or a
+    # future deployment topology that does need real cross-origin requests.
+    cors_allowed_origins: str = "http://localhost:5173"
+
+    def cors_origins(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
 
 
 @lru_cache

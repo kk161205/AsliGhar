@@ -28,4 +28,4 @@ def test_a_normal_404_is_unaffected_by_the_catch_all_handler() -> None:
         response = client.get("/api/v1/scan/no-such-scan-id")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "scan not found"}
+    assert response.json() == {"detail": "Scan not found."}

@@ -1,0 +1,127 @@
+.house-illustration {
+  position: relative;
+  width: 300px;
+  height: 340px;
+  flex-shrink: 0;
+}
+.house-illustration svg {
+  display: block;
+  overflow: visible;
+}
+
+.pointer-line {
+  stroke: #6b6055;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  fill: none;
+  opacity: 0;
+  animation: line-in 0.4s ease-out forwards;
+}
+.line-1 { animation-delay: 0.35s; }
+.line-2 { animation-delay: 0.55s; }
+.line-3 { animation-delay: 0.75s; }
+
+.badge {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #211c17;
+  color: #f7f2ea;
+  font-size: 12.5px;
+  line-height: 1.25;
+  padding: 6px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translateY(6px) scale(0.94);
+  animation:
+    badge-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards,
+    badge-float 3.4s ease-in-out infinite;
+}
+.badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c1502e;
+  flex-shrink: 0;
+}
+.badge.result {
+  background: #c1502e;
+  font-weight: 600;
+  white-space: normal;
+  text-align: center;
+}
+.badge.result::before {
+  background: #f7f2ea;
+}
+
+.badge-1 { top: 6px;   left: 226px; animation-delay: 0.15s, 0.65s; }
+.badge-2 { top: 96px;  left: -8px;  animation-delay: 0.35s, 0.85s; }
+.badge-3 { top: 210px; left: 214px; animation-delay: 0.55s, 1.05s; }
+
+.badge-result {
+  top: 296px;
+  left: 50%;
+  transform: translate(-50%, 6px) scale(0.94);
+  animation-name: badge-in-center, badge-float-center;
+  animation-delay: 0.85s, 1.35s;
+  animation-duration: 0.5s, 3.4s;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1), ease-in-out;
+  animation-iteration-count: 1, infinite;
+  animation-fill-mode: forwards, none;
+}
+
+@keyframes badge-in {
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes badge-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+@keyframes badge-in-center {
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+@keyframes badge-float-center {
+  0%, 100% { transform: translate(-50%, 0); }
+  50%      { transform: translate(-50%, -5px); }
+}
+@keyframes line-in {
+  to { opacity: 0.6; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge, .pointer-line {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .badge-result { transform: translate(-50%, 0) !important; }
+}
+
+@media (max-width: 480px) {
+  .house-illustration { transform: scale(0.82); }
+}
+
+/* Above the hero's mobile stack (768px) but below where .page's own
+   max-width starts leaving slack in the margins (~1050px), the visual
+   column is capped at 380px and badge-1 runs past the viewport edge at
+   full size. Below 768px the hero stacks to full page width, which is
+   already wide enough, so this only needs to cover the gap in between. */
+@media (min-width: 769px) and (max-width: 1050px) {
+  .house-illustration { transform: scale(0.82); }
+}
+
+/* badge-1 ("Image reused elsewhere") is the widest badge and the one that
+   sits furthest right; below ~420px the 0.82 scale above isn't enough to
+   keep it from running past the viewport edge, so phones need a couple
+   more steps down. */
+@media (max-width: 400px) {
+  .house-illustration { transform: scale(0.7); }
+}
+
+@media (max-width: 340px) {
+  .house-illustration { transform: scale(0.6); }
+}

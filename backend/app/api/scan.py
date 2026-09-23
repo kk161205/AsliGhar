@@ -17,7 +17,20 @@ MIN_PHOTOS = 1
 MAX_PHOTOS = 5
 MAX_PHOTO_BYTES = 5 * 1024 * 1024
 MAX_LISTING_URL_CHARS = 500
-ALLOWED_PHOTO_CONTENT_TYPES = {"image/jpeg": ".jpg", "image/png": ".png"}
+ALLOWED_PHOTO_CONTENT_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+# The client-declared content-type is just a header — cheap to fake or get
+# wrong. A magic-number check on the actual bytes is the minimum bar before
+# trusting an upload enough to write it to disk and serve it back publicly.
+_MAGIC_SIGNATURES: dict[str, tuple[bytes, ...]] = {
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+}
+
+
+def _matches_declared_type(content: bytes, content_type: str) -> bool:
+    if content_type == "image/webp":
+        return content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+    return any(content.startswith(sig) for sig in _MAGIC_SIGNATURES.get(content_type, ()))
 
 
 async def _read_and_validate_photos(photos: list[UploadFile]) -> list[tuple[bytes, str]]:
@@ -39,6 +52,13 @@ async def _read_and_validate_photos(photos: list[UploadFile]) -> list[tuple[byte
         if len(content) > MAX_PHOTO_BYTES:
             logger.warning("Scan rejected: photo %s exceeds %s bytes", photo.filename, MAX_PHOTO_BYTES)
             raise HTTPException(status_code=422, detail=f"Photo {photo.filename} exceeds 5MB.")
+        if not _matches_declared_type(content, photo.content_type or ""):
+            logger.warning(
+                "Scan rejected: photo %s's content doesn't match declared type=%s",
+                photo.filename,
+                photo.content_type,
+            )
+            raise HTTPException(status_code=422, detail=f"{photo.filename} isn't a valid image file.")
         contents.append((content, suffix))
     return contents
 
@@ -140,10 +160,17 @@ async def get_scan(scan_id: str) -> ScanResponse:
     scan = await scan_service.get_scan(scan_id)
     if scan is None:
         logger.info("Scan lookup miss: scan_id=%s", scan_id)
-        raise HTTPException(status_code=404, detail="scan not found")
+        raise HTTPException(status_code=404, detail="Scan not found.")
     return scan
 
 
 @router.get("/scans", response_model=list[ScanSummary])
 async def list_scans(current_user: User = Depends(get_current_user)) -> list[ScanSummary]:
     return await scan_service.list_recent_scans(current_user.id)
+
+
+@router.delete("/scans/{scan_id}", status_code=204)
+async def delete_scan(scan_id: str, current_user: User = Depends(get_current_user)) -> None:
+    deleted = await scan_service.delete_scan(scan_id, current_user.id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Scan not found.")

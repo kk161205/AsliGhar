@@ -10,7 +10,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.models.db import RentComparable, async_session
 from app.services import cities
@@ -44,6 +44,18 @@ async def load(city: str, bhk: str | None) -> list[Comparable]:
         logger.warning("Couldn't load stored comparables: %s", exc)
         return []
     return [Comparable(row.rent, row.title, row.url, row.snippet, earlier=True) for row in rows]
+
+
+async def delete_stale() -> None:
+    """Remove comparables older than MAX_AGE_DAYS — load() already ignores them,
+    but nothing previously deleted them, so the table grew forever."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)
+    try:
+        async with async_session() as session:
+            await session.execute(delete(RentComparable).where(RentComparable.seen_at < cutoff))
+            await session.commit()
+    except Exception as exc:
+        logger.warning("Couldn't delete stale comparables: %s", exc)
 
 
 async def save(city: str, bhk: str | None, found: list[Comparable]) -> None:

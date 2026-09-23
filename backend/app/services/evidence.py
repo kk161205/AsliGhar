@@ -536,7 +536,13 @@ def extract_address_validity(maps_result, submitted_city: str, *, city_added: bo
             sources=[source],
         )
 
-    category = place.get("type") or next(iter(place.get("types") or []), None)
+    # "type" is usually a single string, but SerpApi's google_maps engine has
+    # been observed returning it as a list too (confirmed live, crashed
+    # .lower() below) — normalize it the same way "types" already is.
+    single_type = place.get("type")
+    if isinstance(single_type, list):
+        single_type = next(iter(single_type), None)
+    category = single_type or next(iter(place.get("types") or []), None)
     if category is None:
         # Common for locality-level queries (confirmed live): Maps resolves the
         # place with title/address/gps but no category. Absence of a category is

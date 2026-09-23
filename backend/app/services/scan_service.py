@@ -199,8 +199,13 @@ async def run_scan(
     listing_url: str | None = None,
     phone: str | None = None,
 ) -> ScanResponse:
-    image_host.cleanup_expired(get_settings().image_ttl_minutes)
-    saved_paths = [image_host.save_upload(content, suffix) for content, suffix in photos]
+    # Housekeeping for state that nothing else ever purges — cheap enough to
+    # do on every scan, and simpler than a separate scheduled job.
+    await asyncio.to_thread(image_host.cleanup_expired, get_settings().image_ttl_minutes)
+    serpapi_client.purge_expired_cache()
+    await comparable_store.delete_stale()
+
+    saved_paths = [await asyncio.to_thread(image_host.save_upload, content, suffix) for content, suffix in photos]
     image_urls = [_public_image_url(path.name) for path in saved_paths]
 
     # Photo searches are slow and need nothing from the reviewer, so they start
@@ -378,6 +383,17 @@ async def get_scan(scan_id: str) -> ScanResponse | None:
         search_trace=SearchTrace.model_validate(row.trace_json) if row.trace_json else None,
         insights=[Insight.model_validate(item) for item in row.insights_json or []],
     )
+
+
+async def delete_scan(scan_id: str, user_id: str) -> bool:
+    """Delete a scan owned by user_id. Returns False if it doesn't exist or belongs to someone else."""
+    async with async_session() as session:
+        row = await session.get(Scan, scan_id)
+        if row is None or row.user_id != user_id:
+            return False
+        await session.delete(row)
+        await session.commit()
+    return True
 
 
 async def list_recent_scans(user_id: str, limit: int = RECENT_SCANS_LIMIT) -> list[ScanSummary]:

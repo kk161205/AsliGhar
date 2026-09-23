@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
@@ -8,19 +9,28 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 
 settings = get_settings()
+
+# A connection opened under one asyncio event loop crashes if reused under a
+# different one (asyncpg raises "Event loop is closed"). pytest hits this
+# directly — each TestClient(app) spins up its own loop — so tests keep
+# NullPool, paying a fresh connection per query. The running server has a
+# single long-lived loop for its whole process, so it's safe to actually
+# pool, avoiding a repeat TCP+TLS handshake (~450ms to Neon, measured live)
+# on every request.
+#
+# No pool_pre_ping: measured live, it adds a full extra round trip to Neon
+# per request (~150-200ms one-way from here) to validate a connection that's
+# almost always fine — recycling every 5 minutes already keeps connections
+# well under Neon's own idle-close timeout, which was the actual failure
+# pre_ping would have been guarding against.
+_under_pytest = "pytest" in sys.modules
+_pool_kwargs = (
+    {"poolclass": NullPool} if _under_pytest else {"pool_recycle": 300, "pool_size": 5, "max_overflow": 5}
+)
+
 engine = create_async_engine(
     settings.database_url,
     echo=False,
-    # NullPool: don't let SQLAlchemy hold its own long-lived connection pool
-    # on top of Neon's pooled connection string, which already pools via
-    # PgBouncer. Double-pooling here caused a real failure — a connection
-    # opened under one asyncio event loop got reused under a different one
-    # (e.g. multiple TestClient instances in one pytest run, each of which
-    # spins up its own event loop) and asyncpg raised "Event loop is
-    # closed" on teardown. NullPool makes every checkout a fresh connection
-    # instead, which is the pattern Neon itself recommends against a pooled
-    # connection string.
-    poolclass=NullPool,
     connect_args={
         # required for asyncpg against Neon's pooled connection string
         # (PgBouncer in transaction mode) — without this, asyncpg's
@@ -35,6 +45,7 @@ engine = create_async_engine(
         # those params; SSL is handled here instead.
         "ssl": "require",
     },
+    **_pool_kwargs,
 )
 async_session: async_sessionmaker[AsyncSession] = async_sessionmaker(engine, expire_on_commit=False)
 

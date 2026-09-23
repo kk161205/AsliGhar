@@ -12,12 +12,12 @@ import re
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.core.config import get_settings
+from app.core.constants import MAX_DESCRIPTION_CHARS
 from app.services import cities, groq_client
 
 logger = logging.getLogger(__name__)
 
 MAX_ADDRESS_CHARS = 300
-MAX_DESCRIPTION_CHARS = 500
 # Shorter words ("5th", "of", "blr") are too generic to prove a field was in the text.
 MIN_GROUNDED_WORD_CHARS = 4
 # "none": the model is a plain extractor here — hidden reasoning would only

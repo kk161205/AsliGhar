@@ -7,6 +7,7 @@ import EvidenceTrail from "../components/EvidenceTrail";
 import HowWeSearched from "../components/HowWeSearched";
 import Insights from "../components/Insights";
 import Nav from "../components/Nav";
+import ResultsSkeleton from "../components/ResultsSkeleton";
 import RiskGauge from "../components/RiskGauge";
 import SignalRow from "../components/SignalRow";
 
@@ -41,16 +42,24 @@ export default function Results() {
     <>
       <Nav />
       <main className="page page--results">
-        {state.status === "loading" && <p>Loading scan result…</p>}
+        <h1>Scan result</h1>
+        {scanId && <p className="mono results__id">{scanId}</p>}
+
+        {state.status === "loading" && (
+          <>
+            <p className="sr-only" role="status">
+              Loading scan result…
+            </p>
+            <ResultsSkeleton />
+          </>
+        )}
         {state.status === "error" && (
-          <p role="alert" className="results__error">
+          <p role="alert" className="fetch-error">
             {state.message}
           </p>
         )}
         {state.status === "loaded" && (
           <>
-            <h1>Scan result</h1>
-            <p className="mono results__id">{state.scan.scan_id}</p>
             <RiskGauge score={state.scan.risk_score} band={state.scan.risk_band} />
             {state.scan.partial ? (
               <p role="note" className="results__partial">

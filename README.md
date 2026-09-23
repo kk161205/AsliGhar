@@ -20,7 +20,7 @@ AsliGhar/
 │   ├── app/
 │   │   ├── api/            # scan.py, auth.py
 │   │   ├── services/       # serpapi_client, groq_client, scoring, evidence, auth_service
-│   │   ├── core/           # config, logging, rate limiting, auth
+│   │   ├── core/           # config, constants, logging, rate limiting, auth
 │   │   ├── models/         # Pydantic schemas + SQLAlchemy models
 │   │   └── main.py
 │   ├── scripts/            # one-time DB migrations
@@ -58,6 +58,10 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 If your database already has data in it from before authentication was added, run the migration scripts under `backend/scripts/` once (in order) before starting the server — `Base.metadata.create_all` only creates missing tables, it never alters an existing table's columns.
+
+## Deployment
+
+Frontend on Vercel, backend on Render, database on Neon. Vercel rewrites `/api/*` to the Render backend (see `frontend/vercel.json`), so the browser only ever talks to the Vercel origin — the backend's `CORS_ALLOWED_ORIGINS` setting only matters for a setup that skips that rewrite. `COOKIE_SECURE=true` and `PUBLIC_BASE_URL` pointing at the public Render URL are both required in production; the latter is also what makes reverse image search possible at all (see Limitations below).
 
 ## Signing in
 

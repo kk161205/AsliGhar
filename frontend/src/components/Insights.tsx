@@ -17,7 +17,7 @@ export default function Insights({ insights }: InsightsProps) {
       <p className="results__legend">These don't change the score.</p>
       <ul className="insights">
         {insights.map((insight, index) => (
-          <li key={`${insight.title}-${index}`} className="insights__item">
+          <li key={`${insight.title}-${index}`}>
             <p className="insights__title">
               {insight.title} <TierBadge tier={insight.tier} />
             </p>

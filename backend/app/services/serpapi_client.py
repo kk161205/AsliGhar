@@ -12,7 +12,21 @@ SERPAPI_ACCOUNT_ENDPOINT = "https://serpapi.com/account"
 REQUEST_TIMEOUT_SECONDS = 8.0
 MAX_RETRIES = 1
 
-_cache: dict[tuple, tuple[float, dict]] = {}
+_cache: dict[tuple, tuple[float, float, dict]] = {}  # key -> (cached_at, ttl, data)
+
+
+def purge_expired_cache() -> None:
+    """Drop cache entries past their own TTL.
+
+    Most keys (addresses, phone numbers, phrases) are unique per scan and are
+    read exactly once, so without an active sweep the cache only ever grows
+    for the life of the process — the per-read TTL check in _get() alone
+    never removes anything, it just stops trusting stale entries.
+    """
+    now = time.monotonic()
+    expired = [key for key, (cached_at, ttl, _) in _cache.items() if now - cached_at >= ttl]
+    for key in expired:
+        del _cache[key]
 
 
 async def verify_key() -> bool:
@@ -53,7 +67,7 @@ async def _get(
     cached = _cache.get(cache_key)
     if cached and time.monotonic() - cached[0] < ttl:
         logger.info("SerpApi cache hit: engine=%s", engine)
-        return cached[1]
+        return cached[2]
 
     request_params = {**params, "engine": engine, "api_key": settings.serpapi_key}
     last_exc: httpx.TimeoutException | None = None
@@ -63,7 +77,7 @@ async def _get(
                 response = await client.get(SERPAPI_ENDPOINT, params=request_params)
             response.raise_for_status()
             data = response.json()
-            _cache[cache_key] = (time.monotonic(), data)
+            _cache[cache_key] = (time.monotonic(), ttl, data)
             logger.info("SerpApi call succeeded: engine=%s attempt=%s", engine, attempt)
             return data
         except httpx.TimeoutException as exc:

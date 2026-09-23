@@ -1,9 +1,11 @@
 import { Gauge, ScanSearch, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, listScans } from "../api/client";
+import { ApiError, deleteScan, listScans } from "../api/client";
 import type { ScanSummary } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import ConfirmDialog from "../components/ConfirmDialog";
+import DashboardSkeleton from "../components/DashboardSkeleton";
 import IconBadge from "../components/IconBadge";
 import Nav from "../components/Nav";
 import RecentScansList from "../components/RecentScansList";
@@ -30,6 +32,9 @@ function firstName(fullName: string | null): string {
 export default function Dashboard() {
   const { state: authState } = useAuth();
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [pendingDelete, setPendingDelete] = useState<ScanSummary | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +52,36 @@ export default function Dashboard() {
     };
   }, []);
 
+  function handleDeleteRequest(scan: ScanSummary) {
+    setDeleteError(null);
+    setPendingDelete(scan);
+  }
+
+  function handleCancelDelete() {
+    if (isDeleting) return;
+    setPendingDelete(null);
+    setDeleteError(null);
+  }
+
+  async function handleConfirmDelete() {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteScan(pendingDelete.scan_id);
+      setState((prev) =>
+        prev.status === "loaded"
+          ? { status: "loaded", scans: prev.scans.filter((scan) => scan.scan_id !== pendingDelete.scan_id) }
+          : prev,
+      );
+      setPendingDelete(null);
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Couldn't delete this scan.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   const user = authState.status === "authenticated" ? authState.user : null;
   const subLine = user ? [user.email, user.city].filter(Boolean).join(" · ") : "";
 
@@ -59,9 +94,16 @@ export default function Dashboard() {
           <p className="dashboard-header__sub">{subLine}</p>
         </div>
 
-        {state.status === "loading" && <p className="recent-scans__status">Loading your scans…</p>}
+        {state.status === "loading" && (
+          <>
+            <p className="sr-only" role="status">
+              Loading your scans…
+            </p>
+            <DashboardSkeleton />
+          </>
+        )}
         {state.status === "error" && (
-          <p className="recent-scans__status" role="alert">
+          <p className="fetch-error" role="alert">
             {state.message}
           </p>
         )}
@@ -95,18 +137,38 @@ export default function Dashboard() {
             </div>
 
             <section className="dashboard-scans">
-              <h2>Recent scans</h2>
+              <div className="dashboard-scans__header">
+                <h2>Recent scans</h2>
+                <Link to="/scan" className="button-secondary">
+                  Check a listing
+                </Link>
+              </div>
               {state.scans.length === 0 ? (
                 <p className="recent-scans__status">
                   No scans yet. <Link to="/scan">Check your first listing</Link> to see it here.
                 </p>
               ) : (
-                <RecentScansList scans={state.scans} />
+                <RecentScansList scans={state.scans} onDeleteRequest={handleDeleteRequest} />
               )}
             </section>
           </>
         )}
       </main>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this scan?"
+        message={
+          pendingDelete
+            ? `This permanently removes the scan of "${pendingDelete.address}". This can't be undone.${
+                deleteError ? ` ${deleteError}` : ""
+              }`
+            : ""
+        }
+        isConfirming={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </>
   );
 }

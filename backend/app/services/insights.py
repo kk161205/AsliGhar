@@ -16,6 +16,7 @@ from app.services.money import inr
 PHONE_PATTERN = re.compile(r"^[6-9]\d{9}$")
 _COUNTRY_PREFIX = re.compile(r"^(?:\+?91|0)(?=\d{10}$)")
 MAX_PHONE_INSIGHTS = 3
+MAX_DESCRIPTION_REUSE_INSIGHTS = 3
 MAX_QUOTE_CHARS = 160
 MIN_PHOTO_AGE_DAYS = 180
 _FRAUD_WORDS = re.compile(r"\b(scam|scammer|fraud|fraudster|cheat|cheated|cheating|beware|fake)\b", re.IGNORECASE)
@@ -214,7 +215,7 @@ def description_reuse_insights(hits: list[dict], city: str, own_url: str | None)
         found.append(
             Insight(kind="description", tier="proven" if known_site else "indicator", title=headline, detail=detail, url=link)
         )
-        if len(found) == MAX_PHONE_INSIGHTS:
+        if len(found) == MAX_DESCRIPTION_REUSE_INSIGHTS:
             break
     return found
 

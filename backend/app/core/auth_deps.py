@@ -18,16 +18,16 @@ async def get_current_user(access_token: str | None = Cookie(default=None)) -> U
     # reuse across environments, a deleted account with a still-live
     # session), so that specific case is.
     if access_token is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
     user_id = auth_service.decode_access_token(access_token)
     if user_id is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session."
         )
     user = await auth_service.get_user_by_id(user_id)
     if user is None:
         logger.warning("Valid session token for user_id=%s, but that user no longer exists", user_id)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session"
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session."
         )
     return user

@@ -37,7 +37,6 @@ export default function Nav() {
         {state.status === "authenticated" && (
           <>
             <Link to="/dashboard">Dashboard</Link>
-            <Link to="/scan">Check a listing</Link>
             <button type="button" className="site-nav__button" onClick={handleLogout}>
               Log out
             </button>
